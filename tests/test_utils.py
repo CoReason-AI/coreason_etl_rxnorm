@@ -8,28 +8,18 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 
-from pathlib import Path
+import importlib
+from unittest.mock import patch
 
-from coreason_etl_rxnorm.utils.logger import logger
-
-
-def test_logger_initialization() -> None:
-    """Test that the logger is initialized correctly and creates the log directory."""
-    # Since the logger is initialized on import, we check side effects
-
-    # Check if logs directory creation is handled
-    # Note: running this test might actually create the directory in the test environment
-    # if it doesn't exist.
-
-    log_path = Path("logs")
-    assert log_path.exists()
-    assert log_path.is_dir()
-
-    # Verify app.log creation if it was logged to (it might be empty or not created until log)
-    # logger.info("Test log")
-    # assert (log_path / "app.log").exists()
+import coreason_etl_rxnorm.utils.logger
 
 
-def test_logger_exports() -> None:
-    """Test that logger is exported."""
-    assert logger is not None
+def test_logger_mkdir() -> None:
+    with (
+        patch("pathlib.Path.exists", return_value=False),
+        patch("pathlib.Path.mkdir") as mock_mkdir,
+        patch("loguru.logger.add"),
+        patch("loguru.logger.remove"),
+    ):
+        importlib.reload(coreason_etl_rxnorm.utils.logger)
+        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 # Determine UUID5 base for RxNorm to ensure deterministic identity.
 NAMESPACE_RXNORM = uuid.UUID("f3b9c7b0-7b3b-4b3b-8b3b-0b3b3b3b3b3b")
 
+
 class FederatedRxNormConfigurationContract(BaseModel):
     """
     AGENT INSTRUCTION: This object represents the mandatory epistemic configuration state
@@ -24,14 +25,7 @@ class FederatedRxNormConfigurationContract(BaseModel):
     """
 
     umls_api_key: str = Field(
-        ...,
-        description="The API key required to authenticate with the UMLS Terminology Services."
+        ..., description="The API key required to authenticate with the UMLS Terminology Services."
     )
-    bronze_bucket: str = Field(
-        ...,
-        description="The S3 URI prefix for the Bronze data lake zone."
-    )
-    silver_bucket: str = Field(
-        ...,
-        description="The S3 URI prefix for the Silver data lake zone."
-    )
+    bronze_bucket: str = Field(..., description="The S3 URI prefix for the Bronze data lake zone.")
+    silver_bucket: str = Field(..., description="The S3 URI prefix for the Silver data lake zone.")

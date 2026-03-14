@@ -52,12 +52,12 @@ def test_missing_fields() -> None:
     with pytest.raises(ValidationError):
         FederatedRxNormConfigurationContract(  # type: ignore[call-arg]
             umls_api_key="valid_key",
-            bronze_bucket="s3://bronze-bucket"
+            bronze_bucket="s3://bronze-bucket",
             # silver_bucket missing
         )
 
 
-@given(st.text())
+@given(api_key=st.text())  # type: ignore[misc]
 def test_hypothesis_umls_api_key(api_key: str) -> None:
     """Property-based test for UMLS API key (as arbitrary string)."""
     config = FederatedRxNormConfigurationContract(
