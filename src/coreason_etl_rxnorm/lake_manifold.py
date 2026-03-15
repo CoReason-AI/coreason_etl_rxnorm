@@ -221,3 +221,138 @@ def execute_silver_conso_transmutation_task(
 
     logger.info("Successfully transmuted RXNCONSO to EpistemicSilverConsoManifest.")
     return EpistemicSilverConsoManifest(uploaded_s3_uri=uploaded_uri)
+
+
+class EpistemicSilverRelManifest(BaseModel):
+    """
+    AGENT INSTRUCTION: This object represents the mandatory epistemic state
+    of successfully processed RXNREL Parquet files in the Silver S3 zone.
+    """
+
+    uploaded_s3_uri: str = Field(
+        ...,
+        description="The specific S3 URI of the uploaded Silver Parquet file.",
+    )
+
+
+def execute_silver_rel_transmutation_task(
+    rel_file_path: pathlib.Path,
+    config: FederatedRxNormConfigurationContract,
+) -> EpistemicSilverRelManifest:
+    """
+    AGENT INSTRUCTION: Executes the intent to transmute the raw RXNREL.RRF file
+    into a typed, filtered, and identity-resolved Parquet file in the Silver zone.
+
+    Args:
+        rel_file_path: The local filesystem path to the extracted RXNREL.RRF file.
+        config: The configuration contract containing the S3 silver bucket URI.
+
+    Returns:
+        An EpistemicSilverRelManifest containing the S3 URI of the Silver Parquet file.
+
+    Raises:
+        botocore.exceptions.ClientError: If the upload fails due to S3 or permissions errors.
+    """
+    logger.info("Executing SilverRelTransmutationTask for RXNREL.", file_path=str(rel_file_path))
+
+    # Explicit schema definition for RXNREL.RRF based on NLM specs
+    # A phantom column `_trailing_empty` is added to handle the trailing pipe
+    rel_columns = [
+        "RXCUI1",
+        "RXAUI1",
+        "STYPE1",
+        "REL",
+        "RXCUI2",
+        "RXAUI2",
+        "STYPE2",
+        "RELA",
+        "RUI",
+        "SRUI",
+        "SAB",
+        "SL",
+        "DIR",
+        "RG",
+        "SUPPRESS",
+        "CVF",
+        "_trailing_empty",
+    ]
+
+    lazy_df = pl.scan_csv(
+        rel_file_path,
+        separator="|",
+        has_header=False,
+        new_columns=rel_columns,
+        truncate_ragged_lines=True,
+    )
+
+    # Transform the DataFrame
+    transformed_df = (
+        lazy_df.drop("_trailing_empty")
+        .with_columns(
+            pl.col("RXCUI1").cast(pl.String, strict=True),
+            pl.col("RXCUI2").cast(pl.String, strict=True),
+        )
+        .filter(pl.col("SAB") == "RXNORM")
+        .with_columns(
+            pl.col("RXCUI1")
+            .map_elements(
+                lambda x: str(uuid.uuid5(NAMESPACE_RXNORM, str(x))),
+                return_dtype=pl.String,
+            )
+            .alias("source_coreason_id"),
+            pl.col("RXCUI2")
+            .map_elements(
+                lambda x: str(uuid.uuid5(NAMESPACE_RXNORM, str(x))),
+                return_dtype=pl.String,
+            )
+            .alias("target_coreason_id"),
+        )
+        .rename(
+            {
+                "RXCUI1": "source_rxcui_id",
+                "RXCUI2": "target_rxcui_id",
+                "RELA": "relationship_type",
+            }
+        )
+        .select(
+            [
+                "source_rxcui_id",
+                "source_coreason_id",
+                "target_rxcui_id",
+                "target_coreason_id",
+                "relationship_type",
+            ]
+        )
+    )
+
+    # Secure local temporary file for the Parquet output to manage memory
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as temp_file:
+        temp_parquet_path = pathlib.Path(temp_file.name)
+
+    logger.debug("Writing Transmuted DataFrame to temporary Silver Parquet manifold.", path=str(temp_parquet_path))
+
+    try:
+        # Collect streaming is required for multi-gigabyte files
+        transformed_df.collect(engine="streaming").write_parquet(temp_parquet_path)
+
+        silver_uri = config.silver_bucket
+        bucket_name = silver_uri.removeprefix("s3://").strip("/")
+        s3_key = "rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+
+        s3_client = boto3.client("s3")
+        logger.debug(f"Uploading Silver Parquet to s3://{bucket_name}/{s3_key}")
+
+        s3_client.upload_file(str(temp_parquet_path), bucket_name, s3_key)
+        uploaded_uri = f"s3://{bucket_name}/{s3_key}"
+
+    except Exception as e:
+        logger.exception("Failed to transmute and upload RXNREL to Silver lake.")
+        raise e
+    finally:
+        # Immediately purge the local temporary parquet file
+        if temp_parquet_path.exists():
+            temp_parquet_path.unlink()
+            logger.debug("Purged temporary Silver Parquet manifold.", path=str(temp_parquet_path))
+
+    logger.info("Successfully transmuted RXNREL to EpistemicSilverRelManifest.")
+    return EpistemicSilverRelManifest(uploaded_s3_uri=uploaded_uri)
