@@ -8,6 +8,8 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 
+import pathlib
+
 import pytest
 import requests
 import responses
@@ -16,6 +18,8 @@ from pydantic import ValidationError
 from coreason_etl_rxnorm.config import FederatedRxNormConfigurationContract
 from coreason_etl_rxnorm.network_manifold import (
     EpistemicReleaseMetadataManifest,
+    SpatialArchiveState,
+    execute_epistemic_archive_download_task,
     execute_epistemic_release_metadata_fetch_task,
 )
 
@@ -118,3 +122,48 @@ def test_epistemic_release_metadata_manifest_validation() -> None:
 
     with pytest.raises(ValidationError):
         EpistemicReleaseMetadataManifest(download_url="not_a_url")
+
+
+@responses.activate
+def test_execute_epistemic_archive_download_task_success(
+    valid_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test successful archive download task execution."""
+    manifest = EpistemicReleaseMetadataManifest(download_url="https://example.com/rxnorm.zip")
+
+    responses.add(
+        responses.GET,
+        "https://uts-ws.nlm.nih.gov/download",
+        body=b"mock_zip_content",
+        status=200,
+    )
+
+    state = execute_epistemic_archive_download_task(manifest, valid_config)
+
+    assert isinstance(state, SpatialArchiveState)
+    assert isinstance(state.archive_path, pathlib.Path)
+    assert state.archive_path.exists()
+
+    with open(state.archive_path, "rb") as f:
+        assert f.read() == b"mock_zip_content"
+
+    # Clean up
+    state.archive_path.unlink()
+
+
+@responses.activate
+def test_execute_epistemic_archive_download_task_http_error(
+    valid_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test task execution failure due to HTTP error and ensure cleanup."""
+    manifest = EpistemicReleaseMetadataManifest(download_url="https://example.com/rxnorm.zip")
+
+    responses.add(
+        responses.GET,
+        "https://uts-ws.nlm.nih.gov/download",
+        body=b"Unauthorized",
+        status=401,
+    )
+
+    with pytest.raises(requests.HTTPError):
+        execute_epistemic_archive_download_task(manifest, valid_config)

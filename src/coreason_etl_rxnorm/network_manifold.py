@@ -8,6 +8,10 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 
+import contextlib
+import pathlib
+import tempfile
+
 import requests
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -79,3 +83,70 @@ def execute_epistemic_release_metadata_fetch_task(
     logger.info("Successfully fetched EpistemicReleaseMetadataManifest.", url=str(download_url))
 
     return EpistemicReleaseMetadataManifest(download_url=download_url)
+
+
+class SpatialArchiveState(BaseModel):
+    """
+    AGENT INSTRUCTION: This object represents the mandatory spatial state
+    of a downloaded RxNorm ZIP archive resting on local disk.
+    """
+
+    archive_path: pathlib.Path = Field(
+        ...,
+        description="The local filesystem path to the completely downloaded RxNorm ZIP archive.",
+    )
+
+
+def execute_epistemic_archive_download_task(
+    manifest: EpistemicReleaseMetadataManifest,
+    config: FederatedRxNormConfigurationContract,
+) -> SpatialArchiveState:
+    """
+    AGENT INSTRUCTION: Executes the intent to securely download the remote RxNorm archive
+    specified in the metadata manifest to a local temporary file.
+
+    Args:
+        manifest: The EpistemicReleaseMetadataManifest containing the download URL.
+        config: The FederatedRxNormConfigurationContract containing the UMLS API key.
+
+    Returns:
+        A SpatialArchiveState containing the local file path to the downloaded archive.
+
+    Raises:
+        requests.HTTPError: If the upstream NLM API rejects the request or fails.
+    """
+    logger.info("Executing EpistemicArchiveDownloadTask to stream the RxNorm archive.")
+
+    # Using UTS Download API: https://uts-ws.nlm.nih.gov/download?url=<downloadUrl>&apiKey=<apiKey>
+    url = "https://uts-ws.nlm.nih.gov/download"
+    params = {
+        "url": str(manifest.download_url),
+        "apiKey": config.umls_api_key,
+    }
+
+    # Use a secure NamedTemporaryFile that persists after closing
+    # suffix=".zip" makes it recognizable for extraction tasks
+    # delete=False means it must be manually purged later
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as temp_file:
+        temp_path = pathlib.Path(temp_file.name)
+
+    logger.debug("Streaming archive to temporary manifold.", path=str(temp_path))
+
+    try:
+        with requests.get(url, params=params, stream=True, timeout=60.0) as response:
+            response.raise_for_status()
+
+            # Stream chunks securely to disk
+            with open(temp_path, "wb") as f:
+                f.writelines(response.iter_content(chunk_size=8192))
+    except Exception as e:
+        logger.exception("Failed to stream archive to SpatialArchiveState.")
+        # Attempt to cleanup the partial file on failure
+        if temp_path.exists():
+            with contextlib.suppress(Exception):
+                temp_path.unlink()
+        raise e
+
+    logger.info("Successfully transmuted stream into SpatialArchiveState.", path=str(temp_path))
+
+    return SpatialArchiveState(archive_path=temp_path)
