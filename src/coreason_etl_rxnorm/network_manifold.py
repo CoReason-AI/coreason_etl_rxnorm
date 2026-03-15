@@ -11,6 +11,7 @@
 import contextlib
 import pathlib
 import tempfile
+import zipfile
 
 import requests
 from pydantic import BaseModel, Field, HttpUrl
@@ -150,3 +151,72 @@ def execute_epistemic_archive_download_task(
     logger.info("Successfully transmuted stream into SpatialArchiveState.", path=str(temp_path))
 
     return SpatialArchiveState(archive_path=temp_path)
+
+
+class SpatialExtractionManifest(BaseModel):
+    """
+    AGENT INSTRUCTION: This object represents the mandatory spatial state
+    of an extracted RxNorm archive resting on local disk.
+    """
+
+    extraction_path: pathlib.Path = Field(
+        ...,
+        description="The local directory path containing the extracted RxNorm files.",
+    )
+    extracted_files: list[pathlib.Path] = Field(
+        ...,
+        description="The specific local filesystem paths of the extracted RRF files.",
+    )
+
+
+def execute_spatial_archive_extraction_task(
+    archive_state: SpatialArchiveState,
+) -> SpatialExtractionManifest:
+    """
+    AGENT INSTRUCTION: Executes the intent to extract the mandatory RRF files
+    from the downloaded SpatialArchiveState into a temporary local directory.
+
+    Args:
+        archive_state: The SpatialArchiveState containing the local path to the ZIP archive.
+
+    Returns:
+        A SpatialExtractionManifest containing the path to the extraction directory
+        and paths to the extracted RRF files.
+
+    Raises:
+        KeyError: If mandatory files are missing from the ZIP archive topology.
+        zipfile.BadZipFile: If the provided file is not a valid ZIP archive.
+    """
+    logger.info("Executing SpatialArchiveExtractionTask.", archive_path=str(archive_state.archive_path))
+
+    mandatory_targets = {"rrf/RXNCONSO.RRF", "rrf/RXNREL.RRF", "rrf/RXNSAT.RRF"}
+    extracted_paths: list[pathlib.Path] = []
+
+    # Create a secure temporary directory for extraction
+    temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="rxnorm_extract_"))
+
+    try:
+        with zipfile.ZipFile(archive_state.archive_path, "r") as z:
+            archive_contents = set(z.namelist())
+
+            # Verify all mandatory files exist in the archive topology
+            missing_files = mandatory_targets - archive_contents
+            if missing_files:
+                raise KeyError(f"Mandatory files missing from archive topology: {missing_files}")
+
+            for target in mandatory_targets:
+                extracted_path = pathlib.Path(z.extract(target, temp_dir))
+                extracted_paths.append(extracted_path)
+    except Exception as e:
+        logger.exception("Failed to complete SpatialArchiveExtractionTask.")
+        raise e
+
+    # Sort paths deterministically
+    extracted_paths.sort()
+
+    logger.info("Successfully transmuted SpatialArchiveState into SpatialExtractionManifest.")
+
+    return SpatialExtractionManifest(
+        extraction_path=temp_dir,
+        extracted_files=extracted_paths,
+    )
