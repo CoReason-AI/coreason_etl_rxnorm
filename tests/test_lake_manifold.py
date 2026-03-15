@@ -7,21 +7,24 @@
 # Commercial use beyond a 30-day trial requires a separate license.
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
-
 import pathlib
+import tempfile
 
 import boto3
 import polars as pl
 import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
+from pydantic import ValidationError
 
 from coreason_etl_rxnorm.config import NAMESPACE_RXNORM, FederatedRxNormConfigurationContract
 from coreason_etl_rxnorm.lake_manifold import (
     EpistemicBronzeUploadManifest,
     EpistemicSilverConsoManifest,
+    EpistemicSilverRelManifest,
     execute_bronze_lake_upload_task,
     execute_silver_conso_transmutation_task,
+    execute_silver_rel_transmutation_task,
 )
 from coreason_etl_rxnorm.network_manifold import SpatialExtractionManifest
 
@@ -179,3 +182,90 @@ def test_execute_silver_conso_transmutation_task_s3_error(
     # Do NOT create the bucket mock-silver to cause ClientError
     with pytest.raises((ClientError, boto3.exceptions.Boto3Error)):
         execute_silver_conso_transmutation_task(mock_rxnconso_file, mock_config)
+
+
+def test_epistemic_silver_rel_manifest_validation() -> None:
+    """Test validation of EpistemicSilverRelManifest."""
+    manifest = EpistemicSilverRelManifest(
+        uploaded_s3_uri="s3://my-silver-bucket/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+    )
+    assert (
+        manifest.uploaded_s3_uri
+        == "s3://my-silver-bucket/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+    )
+
+    with pytest.raises(ValidationError):
+        EpistemicSilverRelManifest()  # type: ignore[call-arg]
+
+
+@mock_aws  # type: ignore[misc]
+def test_execute_silver_rel_transmutation_task_success(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test successful transmutation of RXNREL to Silver zone."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    s3_client = boto3.client("s3")
+    bucket_name = mock_config.silver_bucket.removeprefix("s3://").strip("/")
+    s3_client.create_bucket(Bucket=bucket_name)
+
+    # Create dummy RXNREL.RRF
+    with tempfile.NamedTemporaryFile(suffix=".RRF", delete=False, mode="w") as temp_file:
+        # Columns:
+        # Columns omitted for brevity
+
+        # valid row (SAB=RXNORM)
+        temp_file.write("1111|||RO|2222|||has_ingredient|||RXNORM||||N|||\n")
+        # invalid row (SAB=SNOMEDCT_US)
+        temp_file.write("3333|||RO|4444|||has_part|||SNOMEDCT_US||||N|||\n")
+
+        temp_path = pathlib.Path(temp_file.name)
+
+    try:
+        manifest = execute_silver_rel_transmutation_task(temp_path, mock_config)
+        assert (
+            manifest.uploaded_s3_uri
+            == f"s3://{bucket_name}/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+        )
+
+        # Verify file exists in mock S3
+        response = s3_client.head_object(
+            Bucket=bucket_name,
+            Key="rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet",
+        )
+        assert response["ContentLength"] > 0
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+@mock_aws  # type: ignore[misc]
+def test_execute_silver_rel_transmutation_task_s3_error(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test transmutation fails gracefully when S3 bucket is missing."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+    with tempfile.NamedTemporaryFile(suffix=".RRF", delete=False, mode="w") as temp_file:
+        temp_file.write("1111|||RO|2222|||has_ingredient|||RXNORM||||N|||\n")
+        temp_path = pathlib.Path(temp_file.name)
+
+    try:
+        with pytest.raises((ClientError, boto3.exceptions.Boto3Error, Exception)):
+            execute_silver_rel_transmutation_task(temp_path, mock_config)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def test_execute_silver_rel_transmutation_task_file_not_found(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test transmutation fails when RRF file does not exist."""
+    fake_path = pathlib.Path("non_existent_rxnrel.rrf")
+
+    with pytest.raises(FileNotFoundError):
+        execute_silver_rel_transmutation_task(fake_path, mock_config)
