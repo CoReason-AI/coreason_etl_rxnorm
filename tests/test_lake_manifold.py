@@ -22,9 +22,11 @@ from coreason_etl_rxnorm.lake_manifold import (
     EpistemicBronzeUploadManifest,
     EpistemicSilverConsoManifest,
     EpistemicSilverRelManifest,
+    EpistemicSilverSatManifest,
     execute_bronze_lake_upload_task,
     execute_silver_conso_transmutation_task,
     execute_silver_rel_transmutation_task,
+    execute_silver_sat_transmutation_task,
 )
 from coreason_etl_rxnorm.network_manifold import SpatialExtractionManifest
 
@@ -269,3 +271,101 @@ def test_execute_silver_rel_transmutation_task_file_not_found(
 
     with pytest.raises(FileNotFoundError):
         execute_silver_rel_transmutation_task(fake_path, mock_config)
+
+
+def test_epistemic_silver_sat_manifest_validation() -> None:
+    """Test validation of EpistemicSilverSatManifest."""
+    manifest = EpistemicSilverSatManifest(
+        uploaded_s3_uri="s3://my-silver-bucket/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+    )
+    assert manifest.uploaded_s3_uri == "s3://my-silver-bucket/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+
+    with pytest.raises(ValidationError):
+        EpistemicSilverSatManifest()  # type: ignore[call-arg]
+
+
+@mock_aws  # type: ignore[misc]
+def test_execute_silver_sat_transmutation_task_success(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test successful transmutation of RXNSAT to Silver zone."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    s3_client = boto3.client("s3")
+    bucket_name = mock_config.silver_bucket.removeprefix("s3://").strip("/")
+    s3_client.create_bucket(Bucket=bucket_name)
+
+    # Create dummy RXNSAT.RRF
+    with tempfile.NamedTemporaryFile(suffix=".RRF", delete=False, mode="w") as temp_file:
+        # valid row (ATN=NDC)
+        temp_file.write("1111||||||||NDC|RXNORM|00000000000|||\n")
+        # invalid row (ATN=SNOMEDCT_US or ATN=ATC)
+        temp_file.write("3333||||||||ATC|SNOMEDCT_US|A01AA|||\n")
+
+        temp_path = pathlib.Path(temp_file.name)
+
+    try:
+        manifest = execute_silver_sat_transmutation_task(temp_path, mock_config)
+        assert (
+            manifest.uploaded_s3_uri == f"s3://{bucket_name}/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+        )
+
+        # Download Parquet from S3 to verify contents
+        s3_client.download_file(
+            bucket_name,
+            "rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet",
+            str(temp_path.parent / "downloaded_sat.parquet"),
+        )
+
+        df = pl.read_parquet(temp_path.parent / "downloaded_sat.parquet")
+
+        # Should only contain RXCUI 1111
+        assert len(df) == 1
+
+        # Check typing and specific values
+        assert df["rxcui_id"].dtype == pl.String
+        assert df["rxcui_id"].to_list() == ["1111"]
+        assert df["ndc_code"].to_list() == ["00000000000"]
+
+        import uuid
+
+        expected_id_1111 = str(uuid.uuid5(NAMESPACE_RXNORM, "1111"))
+        assert df["coreason_id"].to_list() == [expected_id_1111]
+
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+        if (temp_path.parent / "downloaded_sat.parquet").exists():
+            (temp_path.parent / "downloaded_sat.parquet").unlink()
+
+
+@mock_aws  # type: ignore[misc]
+def test_execute_silver_sat_transmutation_task_s3_error(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test transmutation fails gracefully when S3 bucket is missing."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+    with tempfile.NamedTemporaryFile(suffix=".RRF", delete=False, mode="w") as temp_file:
+        temp_file.write("1111||||||||NDC|RXNORM|00000000000|||\n")
+        temp_path = pathlib.Path(temp_file.name)
+
+    try:
+        with pytest.raises((ClientError, boto3.exceptions.Boto3Error, Exception)):
+            execute_silver_sat_transmutation_task(temp_path, mock_config)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def test_execute_silver_sat_transmutation_task_file_not_found(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test transmutation fails when RRF file does not exist."""
+    fake_path = pathlib.Path("non_existent_rxnsat.rrf")
+
+    with pytest.raises(FileNotFoundError):
+        execute_silver_sat_transmutation_task(fake_path, mock_config)
