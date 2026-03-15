@@ -80,7 +80,7 @@ def execute_bronze_lake_upload_task(
         # botocore ClientError is inside boto3 exceptions often,
         # but to strictly match standard requirements, we can catch Exception and re-raise.
         raise e
-    except Exception as e: # pragma: no cover
+    except Exception as e:  # pragma: no cover
         logger.exception("Failed to upload SpatialExtractionManifest to Bronze lake.")
         raise e
 
@@ -89,7 +89,7 @@ def execute_bronze_lake_upload_task(
         if manifest.extraction_path.exists():
             shutil.rmtree(str(manifest.extraction_path))
             logger.info("Successfully purged local extraction manifold.", path=str(manifest.extraction_path))
-    except Exception as e: # pragma: no cover
+    except Exception as e:  # pragma: no cover
         logger.warning(f"Failed to purge local extraction manifold: {e}", path=str(manifest.extraction_path))
 
     logger.info("Successfully transmuted SpatialExtractionManifest into EpistemicBronzeUploadManifest.")

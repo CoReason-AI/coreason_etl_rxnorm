@@ -51,7 +51,7 @@ def mock_extraction_manifest(tmp_path: pathlib.Path) -> SpatialExtractionManifes
     )
 
 
-@mock_aws
+@mock_aws  # type: ignore[misc]
 def test_execute_bronze_lake_upload_task_success(
     mock_config: FederatedRxNormConfigurationContract,
     mock_extraction_manifest: SpatialExtractionManifest,
@@ -59,6 +59,7 @@ def test_execute_bronze_lake_upload_task_success(
     """Test successful S3 upload and local purge."""
     # Setup mock S3
     import os
+
     os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket="mock-bronze")
@@ -86,7 +87,7 @@ def test_execute_bronze_lake_upload_task_success(
     assert not extraction_path.exists()
 
 
-@mock_aws
+@mock_aws  # type: ignore[misc]
 def test_execute_bronze_lake_upload_task_s3_failure(
     mock_config: FederatedRxNormConfigurationContract,
     mock_extraction_manifest: SpatialExtractionManifest,
