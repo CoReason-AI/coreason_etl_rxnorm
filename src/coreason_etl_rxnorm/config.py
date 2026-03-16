@@ -29,3 +29,4 @@ class FederatedRxNormConfigurationContract(BaseModel):
     )
     bronze_bucket: str = Field(..., description="The S3 URI prefix for the Bronze data lake zone.")
     silver_bucket: str = Field(..., description="The S3 URI prefix for the Silver data lake zone.")
+    athena_database: str = Field(..., description="The name of the AWS Glue Data Catalog database for Athena queries.")
