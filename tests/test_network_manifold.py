@@ -33,6 +33,7 @@ def valid_config() -> FederatedRxNormConfigurationContract:
         umls_api_key="mock_api_key",
         bronze_bucket="s3://mock-bronze",
         silver_bucket="s3://mock-silver",
+        athena_database="mock_db",
     )
 
 

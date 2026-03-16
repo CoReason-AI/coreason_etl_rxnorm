@@ -41,10 +41,12 @@ def test_valid_configuration() -> None:
         umls_api_key="valid_key",
         bronze_bucket="s3://bronze-bucket",
         silver_bucket="s3://silver-bucket",
+        athena_database="my_database",
     )
     assert config.umls_api_key == "valid_key"
     assert config.bronze_bucket == "s3://bronze-bucket"
     assert config.silver_bucket == "s3://silver-bucket"
+    assert config.athena_database == "my_database"
 
 
 def test_missing_fields() -> None:
@@ -64,5 +66,6 @@ def test_hypothesis_umls_api_key(api_key: str) -> None:
         umls_api_key=api_key,
         bronze_bucket="s3://bronze-bucket",
         silver_bucket="s3://silver-bucket",
+        athena_database="my_database",
     )
     assert config.umls_api_key == api_key
