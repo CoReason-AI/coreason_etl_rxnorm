@@ -59,7 +59,7 @@ def test_missing_fields() -> None:
         )
 
 
-@given(api_key=st.text())
+@given(api_key=st.text())  # type: ignore[misc]
 def test_hypothesis_umls_api_key(api_key: str) -> None:
     """Property-based test for UMLS API key (as arbitrary string)."""
     config = FederatedRxNormConfigurationContract(

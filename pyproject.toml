@@ -17,7 +17,6 @@ dependencies = [
     "loguru>=0.7.2",
     "polars>=1.39.0",
     "pydantic>=2.12.5",
-    "pyparsing>=3.0.0",
     "requests>=2.32.5",
 ]
 license = { file = "LICENSE" }
@@ -48,6 +47,7 @@ dev = [
     "types-requests>=2.32.4.20260107",
     "moto>=5.1.22",
     "boto3-stubs[s3]>=1.42.68",
+    "pyparsing>=3.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

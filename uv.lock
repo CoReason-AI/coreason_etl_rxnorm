@@ -194,7 +194,6 @@ dependencies = [
     { name = "loguru" },
     { name = "polars" },
     { name = "pydantic" },
-    { name = "pyparsing" },
     { name = "requests" },
 ]
 
@@ -208,6 +207,7 @@ dev = [
     { name = "moto" },
     { name = "mypy" },
     { name = "pre-commit" },
+    { name = "pyparsing" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
@@ -229,7 +229,6 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "polars", specifier = ">=1.39.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pyparsing", specifier = ">=3.0.0" },
     { name = "requests", specifier = ">=2.32.5" },
 ]
 
@@ -243,6 +242,7 @@ dev = [
     { name = "moto", specifier = ">=5.1.22" },
     { name = "mypy", specifier = ">=1.19.1" },
     { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pyparsing", specifier = ">=3.0.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
