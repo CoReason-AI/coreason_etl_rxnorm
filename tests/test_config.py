@@ -52,10 +52,11 @@ def test_valid_configuration() -> None:
 def test_missing_fields() -> None:
     """Test missing required fields raise ValidationError."""
     with pytest.raises(ValidationError):
-        FederatedRxNormConfigurationContract(  # type: ignore[call-arg]
+        FederatedRxNormConfigurationContract(
             umls_api_key="valid_key",
             bronze_bucket="s3://bronze-bucket",
             # silver_bucket missing
+            athena_database="my_database",
         )
 
 
