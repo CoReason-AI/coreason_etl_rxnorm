@@ -62,7 +62,7 @@ def mock_extraction_manifest(tmp_path: pathlib.Path) -> SpatialExtractionManifes
     )
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_bronze_lake_upload_task_success(
     mock_config: FederatedRxNormConfigurationContract,
     mock_extraction_manifest: SpatialExtractionManifest,
@@ -98,7 +98,7 @@ def test_execute_bronze_lake_upload_task_success(
     assert not extraction_path.exists()
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_bronze_lake_upload_task_s3_failure(
     mock_config: FederatedRxNormConfigurationContract,
     mock_extraction_manifest: SpatialExtractionManifest,
@@ -133,7 +133,7 @@ def mock_rxnconso_file(tmp_path: pathlib.Path) -> pathlib.Path:
     return conso_file
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_conso_transmutation_task_success(
     mock_config: FederatedRxNormConfigurationContract,
     mock_rxnconso_file: pathlib.Path,
@@ -174,7 +174,7 @@ def test_execute_silver_conso_transmutation_task_success(
     assert df["coreason_id"].to_list() == [expected_id_100, expected_id_104]
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_conso_transmutation_task_s3_error(
     mock_config: FederatedRxNormConfigurationContract,
     mock_rxnconso_file: pathlib.Path,
@@ -203,7 +203,7 @@ def test_epistemic_silver_rel_manifest_validation() -> None:
         EpistemicSilverRelManifest()  # type: ignore[call-arg]
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_rel_transmutation_task_success(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -245,7 +245,7 @@ def test_execute_silver_rel_transmutation_task_success(
             temp_path.unlink()
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_rel_transmutation_task_s3_error(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -287,7 +287,7 @@ def test_epistemic_silver_sat_manifest_validation() -> None:
         EpistemicSilverSatManifest()  # type: ignore[call-arg]
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_sat_transmutation_task_success(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -343,7 +343,7 @@ def test_execute_silver_sat_transmutation_task_success(
             (temp_path.parent / "downloaded_sat.parquet").unlink()
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_sat_transmutation_task_s3_error(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -383,7 +383,7 @@ def test_epistemic_gold_registration_manifest_validation() -> None:
         EpistemicGoldRegistrationManifest()  # type: ignore[call-arg]
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_gold_athena_registration_task_success(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -452,7 +452,7 @@ def test_execute_gold_athena_registration_task_success(
     assert "bridge_rxnorm_ndc" in tables
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_gold_athena_registration_task_failure(
     mock_config: FederatedRxNormConfigurationContract,
     monkeypatch: pytest.MonkeyPatch,
