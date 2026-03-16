@@ -47,6 +47,32 @@ def test_valid_configuration() -> None:
     assert config.bronze_bucket == "s3://bronze-bucket"
     assert config.silver_bucket == "s3://silver-bucket"
     assert config.athena_database == "my_database"
+    # Ensure optional fields are None by default
+    assert config.pghost is None
+    assert config.pgport is None
+    assert config.pguser is None
+    assert config.pgpassword is None
+    assert config.pgdatabase is None
+
+
+def test_configuration_with_postgres() -> None:
+    """Test valid configuration contract initialization with PostgreSQL settings."""
+    config = FederatedRxNormConfigurationContract(
+        umls_api_key="valid_key",
+        bronze_bucket="s3://bronze-bucket",
+        silver_bucket="s3://silver-bucket",
+        athena_database="my_database",
+        pghost="localhost",
+        pgport=5432,
+        pguser="postgres",
+        pgpassword="password",
+        pgdatabase="coreason",
+    )
+    assert config.pghost == "localhost"
+    assert config.pgport == 5432
+    assert config.pguser == "postgres"
+    assert config.pgpassword == "password"
+    assert config.pgdatabase == "coreason"
 
 
 def test_missing_fields() -> None:
