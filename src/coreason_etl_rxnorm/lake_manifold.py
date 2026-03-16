@@ -356,3 +356,125 @@ def execute_silver_rel_transmutation_task(
 
     logger.info("Successfully transmuted RXNREL to EpistemicSilverRelManifest.")
     return EpistemicSilverRelManifest(uploaded_s3_uri=uploaded_uri)
+
+
+class EpistemicSilverSatManifest(BaseModel):
+    """
+    AGENT INSTRUCTION: This object represents the mandatory epistemic state
+    of successfully processed RXNSAT Parquet files in the Silver S3 zone.
+    """
+
+    uploaded_s3_uri: str = Field(
+        ...,
+        description="The specific S3 URI of the uploaded Silver Parquet file.",
+    )
+
+
+def execute_silver_sat_transmutation_task(
+    sat_file_path: pathlib.Path,
+    config: FederatedRxNormConfigurationContract,
+) -> EpistemicSilverSatManifest:
+    """
+    AGENT INSTRUCTION: Executes the intent to transmute the raw RXNSAT.RRF file
+    into a typed, filtered, and identity-resolved Parquet file in the Silver zone.
+
+    Args:
+        sat_file_path: The local filesystem path to the extracted RXNSAT.RRF file.
+        config: The configuration contract containing the S3 silver bucket URI.
+
+    Returns:
+        An EpistemicSilverSatManifest containing the S3 URI of the Silver Parquet file.
+
+    Raises:
+        botocore.exceptions.ClientError: If the upload fails due to S3 or permissions errors.
+    """
+    logger.info("Executing SilverSatTransmutationTask for RXNSAT.", file_path=str(sat_file_path))
+
+    # Explicit schema definition for RXNSAT.RRF based on NLM specs
+    # A phantom column `_trailing_empty` is added to handle the trailing pipe
+    sat_columns = [
+        "RXCUI",
+        "LUI",
+        "SUI",
+        "RXAUI",
+        "STYPE",
+        "CODE",
+        "ATUI",
+        "SATUI",
+        "ATN",
+        "SAB",
+        "ATV",
+        "SUPPRESS",
+        "CVF",
+        "_trailing_empty",
+    ]
+
+    lazy_df = pl.scan_csv(
+        sat_file_path,
+        separator="|",
+        has_header=False,
+        new_columns=sat_columns,
+        truncate_ragged_lines=True,
+    )
+
+    # Transform the DataFrame
+    transformed_df = (
+        lazy_df.drop("_trailing_empty")
+        .with_columns(
+            pl.col("RXCUI").cast(pl.String, strict=True),
+        )
+        .filter(pl.col("ATN") == "NDC")
+        .with_columns(
+            pl.col("RXCUI")
+            .map_elements(
+                lambda x: str(uuid.uuid5(NAMESPACE_RXNORM, str(x))),
+                return_dtype=pl.String,
+            )
+            .alias("coreason_id"),
+        )
+        .rename(
+            {
+                "RXCUI": "rxcui_id",
+                "ATV": "ndc_code",
+            }
+        )
+        .select(
+            [
+                "rxcui_id",
+                "coreason_id",
+                "ndc_code",
+            ]
+        )
+    )
+
+    # Secure local temporary file for the Parquet output to manage memory
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as temp_file:
+        temp_parquet_path = pathlib.Path(temp_file.name)
+
+    logger.debug("Writing Transmuted DataFrame to temporary Silver Parquet manifold.", path=str(temp_parquet_path))
+
+    try:
+        # Collect streaming is required for multi-gigabyte files
+        transformed_df.collect(engine="streaming").write_parquet(temp_parquet_path)
+
+        silver_uri = config.silver_bucket
+        bucket_name = silver_uri.removeprefix("s3://").strip("/")
+        s3_key = "rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+
+        s3_client = boto3.client("s3")
+        logger.debug(f"Uploading Silver Parquet to s3://{bucket_name}/{s3_key}")
+
+        s3_client.upload_file(str(temp_parquet_path), bucket_name, s3_key)
+        uploaded_uri = f"s3://{bucket_name}/{s3_key}"
+
+    except Exception as e:
+        logger.exception("Failed to transmute and upload RXNSAT to Silver lake.")
+        raise e
+    finally:
+        # Immediately purge the local temporary parquet file
+        if temp_parquet_path.exists():
+            temp_parquet_path.unlink()
+            logger.debug("Purged temporary Silver Parquet manifold.", path=str(temp_parquet_path))
+
+    logger.info("Successfully transmuted RXNSAT to EpistemicSilverSatManifest.")
+    return EpistemicSilverSatManifest(uploaded_s3_uri=uploaded_uri)
