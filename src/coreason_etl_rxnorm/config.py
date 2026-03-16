@@ -10,13 +10,14 @@
 
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings
 
 # Determine UUID5 base for RxNorm to ensure deterministic identity.
 NAMESPACE_RXNORM = uuid.UUID("f3b9c7b0-7b3b-4b3b-8b3b-0b3b3b3b3b3b")
 
 
-class FederatedRxNormConfigurationContract(BaseModel):
+class FederatedRxNormConfigurationContract(BaseSettings):
     """
     AGENT INSTRUCTION: This object represents the mandatory epistemic configuration state
     for the RxNorm ETL pipeline.
