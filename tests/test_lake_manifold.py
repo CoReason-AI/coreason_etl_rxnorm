@@ -20,10 +20,12 @@ from pydantic import ValidationError
 from coreason_etl_rxnorm.config import NAMESPACE_RXNORM, FederatedRxNormConfigurationContract
 from coreason_etl_rxnorm.lake_manifold import (
     EpistemicBronzeUploadManifest,
+    EpistemicGoldRegistrationManifest,
     EpistemicSilverConsoManifest,
     EpistemicSilverRelManifest,
     EpistemicSilverSatManifest,
     execute_bronze_lake_upload_task,
+    execute_gold_athena_registration_task,
     execute_silver_conso_transmutation_task,
     execute_silver_rel_transmutation_task,
     execute_silver_sat_transmutation_task,
@@ -37,6 +39,7 @@ def mock_config() -> FederatedRxNormConfigurationContract:
         umls_api_key="mock_api_key",
         bronze_bucket="s3://mock-bronze",
         silver_bucket="s3://mock-silver",
+        athena_database="mock_db",
     )
 
 
@@ -59,7 +62,7 @@ def mock_extraction_manifest(tmp_path: pathlib.Path) -> SpatialExtractionManifes
     )
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_bronze_lake_upload_task_success(
     mock_config: FederatedRxNormConfigurationContract,
     mock_extraction_manifest: SpatialExtractionManifest,
@@ -95,7 +98,7 @@ def test_execute_bronze_lake_upload_task_success(
     assert not extraction_path.exists()
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_bronze_lake_upload_task_s3_failure(
     mock_config: FederatedRxNormConfigurationContract,
     mock_extraction_manifest: SpatialExtractionManifest,
@@ -130,7 +133,7 @@ def mock_rxnconso_file(tmp_path: pathlib.Path) -> pathlib.Path:
     return conso_file
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_conso_transmutation_task_success(
     mock_config: FederatedRxNormConfigurationContract,
     mock_rxnconso_file: pathlib.Path,
@@ -171,7 +174,7 @@ def test_execute_silver_conso_transmutation_task_success(
     assert df["coreason_id"].to_list() == [expected_id_100, expected_id_104]
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_conso_transmutation_task_s3_error(
     mock_config: FederatedRxNormConfigurationContract,
     mock_rxnconso_file: pathlib.Path,
@@ -200,7 +203,7 @@ def test_epistemic_silver_rel_manifest_validation() -> None:
         EpistemicSilverRelManifest()  # type: ignore[call-arg]
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_rel_transmutation_task_success(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -242,7 +245,7 @@ def test_execute_silver_rel_transmutation_task_success(
             temp_path.unlink()
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_rel_transmutation_task_s3_error(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -284,7 +287,7 @@ def test_epistemic_silver_sat_manifest_validation() -> None:
         EpistemicSilverSatManifest()  # type: ignore[call-arg]
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_sat_transmutation_task_success(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -340,7 +343,7 @@ def test_execute_silver_sat_transmutation_task_success(
             (temp_path.parent / "downloaded_sat.parquet").unlink()
 
 
-@mock_aws  # type: ignore[misc]
+@mock_aws
 def test_execute_silver_sat_transmutation_task_s3_error(
     mock_config: FederatedRxNormConfigurationContract,
 ) -> None:
@@ -369,3 +372,115 @@ def test_execute_silver_sat_transmutation_task_file_not_found(
 
     with pytest.raises(FileNotFoundError):
         execute_silver_sat_transmutation_task(fake_path, mock_config)
+
+
+def test_epistemic_gold_registration_manifest_validation() -> None:
+    """Test validation of EpistemicGoldRegistrationManifest."""
+    manifest = EpistemicGoldRegistrationManifest(registered_tables=["table1", "table2"])
+    assert manifest.registered_tables == ["table1", "table2"]
+
+    with pytest.raises(ValidationError):
+        EpistemicGoldRegistrationManifest()  # type: ignore[call-arg]
+
+
+@mock_aws
+def test_execute_gold_athena_registration_task_success(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test successful registration of Gold tables in Athena."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    s3_client = boto3.client("s3")
+    glue_client = boto3.client("glue", region_name="us-east-1")
+
+    bucket_name = mock_config.silver_bucket.removeprefix("s3://").strip("/")
+    s3_client.create_bucket(Bucket=bucket_name)
+
+    # Create the Glue database
+    glue_client.create_database(DatabaseInput={"Name": mock_config.athena_database})
+
+    # Prepare dummy parquet files so awswrangler can discover schema
+    df = pl.DataFrame({"a": [1, 2], "b": ["x", "y"]})
+
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as temp_file:
+        df.write_parquet(temp_file.name)
+
+        # Upload to expected locations
+        s3_client.upload_file(temp_file.name, bucket_name, "rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet")
+        s3_client.upload_file(
+            temp_file.name, bucket_name, "rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+        )
+        s3_client.upload_file(temp_file.name, bucket_name, "rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet")
+
+        temp_path = pathlib.Path(temp_file.name)
+        if temp_path.exists():
+            temp_path.unlink()
+
+    conso_manifest = EpistemicSilverConsoManifest(
+        uploaded_s3_uri=f"s3://{bucket_name}/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"
+    )
+    rel_manifest = EpistemicSilverRelManifest(
+        uploaded_s3_uri=f"s3://{bucket_name}/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+    )
+    sat_manifest = EpistemicSilverSatManifest(
+        uploaded_s3_uri=f"s3://{bucket_name}/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+    )
+
+    manifest = execute_gold_athena_registration_task(
+        conso_manifest,
+        rel_manifest,
+        sat_manifest,
+        mock_config,
+    )
+
+    assert isinstance(manifest, EpistemicGoldRegistrationManifest)
+    assert manifest.registered_tables == [
+        "bridge_rxnorm_ndc",
+        "dim_rxnorm_concept",
+        "fact_rxnorm_relationship",
+    ]
+
+    # Verify tables actually exist in Glue
+    res = glue_client.get_tables(DatabaseName=mock_config.athena_database)
+    tables = [t["Name"] for t in res["TableList"]]
+    assert "dim_rxnorm_concept" in tables
+    assert "fact_rxnorm_relationship" in tables
+    assert "bridge_rxnorm_ndc" in tables
+
+
+@mock_aws
+def test_execute_gold_athena_registration_task_failure(
+    mock_config: FederatedRxNormConfigurationContract,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test failure during registration of Gold tables."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+    # Mock awswrangler to throw a standard exception to avoid pickling errors
+    # with dynamically generated botocore exceptions during xdist multiprocessing
+    import awswrangler as wr
+    def mock_store(*_args: object, **_kwargs: object) -> None:
+        raise Exception("Mocked failure")
+
+    monkeypatch.setattr(wr.s3, "store_parquet_metadata", mock_store)
+
+    conso_manifest = EpistemicSilverConsoManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"
+    )
+    rel_manifest = EpistemicSilverRelManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+    )
+    sat_manifest = EpistemicSilverSatManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+    )
+
+    with pytest.raises(Exception, match=r"Mocked failure"):
+        execute_gold_athena_registration_task(
+            conso_manifest,
+            rel_manifest,
+            sat_manifest,
+            mock_config,
+        )

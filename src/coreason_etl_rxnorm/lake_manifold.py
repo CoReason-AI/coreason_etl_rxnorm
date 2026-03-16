@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import uuid
 
+import awswrangler as wr
 import boto3
 import polars as pl
 from pydantic import BaseModel, Field
@@ -478,3 +479,83 @@ def execute_silver_sat_transmutation_task(
 
     logger.info("Successfully transmuted RXNSAT to EpistemicSilverSatManifest.")
     return EpistemicSilverSatManifest(uploaded_s3_uri=uploaded_uri)
+
+
+class EpistemicGoldRegistrationManifest(BaseModel):
+    """
+    AGENT INSTRUCTION: This object represents the mandatory epistemic state
+    of successfully registered Gold tables in the AWS Glue Data Catalog.
+    """
+
+    registered_tables: list[str] = Field(
+        ...,
+        description="The names of the tables successfully registered in Athena.",
+    )
+
+
+def execute_gold_athena_registration_task(
+    conso_manifest: EpistemicSilverConsoManifest,
+    rel_manifest: EpistemicSilverRelManifest,
+    sat_manifest: EpistemicSilverSatManifest,
+    config: FederatedRxNormConfigurationContract,
+) -> EpistemicGoldRegistrationManifest:
+    """
+    AGENT INSTRUCTION: Executes the intent to register the Silver Parquet outputs
+    as Athena tables in the AWS Glue Data Catalog using awswrangler.
+
+    Args:
+        conso_manifest: The EpistemicSilverConsoManifest containing the Silver Parquet URI.
+        rel_manifest: The EpistemicSilverRelManifest containing the Silver Parquet URI.
+        sat_manifest: The EpistemicSilverSatManifest containing the Silver Parquet URI.
+        config: The configuration contract containing the Athena database name.
+
+    Returns:
+        An EpistemicGoldRegistrationManifest containing the names of registered tables.
+
+    Raises:
+        Exception: If the registration fails.
+    """
+    logger.info("Executing GoldAthenaRegistrationTask to register Silver artifacts.")
+
+    database = config.athena_database
+    registered_tables = []
+
+    # Map the manifests to their expected table names and paths
+    # Note: awswrangler needs the directory path for the dataset, not the explicit file
+    datasets = [
+        (
+            "dim_rxnorm_concept",
+            conso_manifest.uploaded_s3_uri.rsplit("/", 1)[0] + "/",
+        ),
+        (
+            "fact_rxnorm_relationship",
+            rel_manifest.uploaded_s3_uri.rsplit("/", 1)[0] + "/",
+        ),
+        (
+            "bridge_rxnorm_ndc",
+            sat_manifest.uploaded_s3_uri.rsplit("/", 1)[0] + "/",
+        ),
+    ]
+
+    try:
+        for table_name, path in datasets:
+            logger.debug(f"Registering Gold table {table_name} at {path} in database {database}.")
+
+            # We use awswrangler to store the parquet metadata in the Glue Catalog
+            wr.s3.store_parquet_metadata(
+                path=path,
+                database=database,
+                table=table_name,
+                dataset=True,
+            )
+            registered_tables.append(table_name)
+    except Exception as e:
+        logger.exception("Failed to execute GoldAthenaRegistrationTask.")
+        raise e
+
+    logger.info("Successfully registered Gold tables into EpistemicGoldRegistrationManifest.")
+
+    # Sort to ensure deterministic output
+    registered_tables.sort()
+
+    return EpistemicGoldRegistrationManifest(registered_tables=registered_tables)
