@@ -14,6 +14,7 @@ from unittest.mock import patch
 from coreason_etl_rxnorm.config import FederatedRxNormConfigurationContract
 from coreason_etl_rxnorm.lake_manifold import (
     EpistemicBronzeUploadManifest,
+    EpistemicGoldPostgresManifest,
     EpistemicGoldRegistrationManifest,
     EpistemicSilverConsoManifest,
     EpistemicSilverRelManifest,
@@ -106,3 +107,110 @@ def test_execute_federated_pipeline_intent() -> None:
             sat_manifest=mock_sat_manifest,
             config=config,
         )
+
+
+def test_main_invokes_postgres_load() -> None:
+    config = FederatedRxNormConfigurationContract(
+        umls_api_key="mock_key",
+        bronze_bucket="s3://mock-bronze",
+        silver_bucket="s3://mock-silver",
+        athena_database="mock_db",
+        pghost="localhost",
+        pgport=5432,
+        pguser="user",
+        pgpassword="password",
+        pgdatabase="db",
+    )
+
+    mock_metadata_manifest = EpistemicReleaseMetadataManifest(download_url="https://example.com/rxnorm.zip")
+    mock_archive_state = SpatialArchiveState(archive_path=pathlib.Path("mock_dir/mock.zip"))
+    mock_extraction_manifest = SpatialExtractionManifest(
+        extraction_path=pathlib.Path("mock_dir/mock_extract"),
+        extracted_files=[
+            pathlib.Path("mock_dir/mock_extract/RXNCONSO.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNREL.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNSAT.RRF"),
+        ],
+    )
+    mock_bronze_manifest = EpistemicBronzeUploadManifest(uploaded_s3_uris=["s3://mock-bronze/rxnorm.zip"])
+    mock_conso_manifest = EpistemicSilverConsoManifest(uploaded_s3_uri="s3://mock-silver/conso.parquet")
+    mock_rel_manifest = EpistemicSilverRelManifest(uploaded_s3_uri="s3://mock-silver/rel.parquet")
+    mock_sat_manifest = EpistemicSilverSatManifest(uploaded_s3_uri="s3://mock-silver/sat.parquet")
+    mock_gold_manifest = EpistemicGoldRegistrationManifest(registered_tables=["table1"])
+    mock_postgres_manifest = EpistemicGoldPostgresManifest(loaded_tables=["table1"])
+
+    with (
+        patch(
+            "coreason_etl_rxnorm.main.execute_epistemic_release_metadata_fetch_task",
+            return_value=mock_metadata_manifest,
+        ),
+        patch("coreason_etl_rxnorm.main.execute_epistemic_archive_download_task", return_value=mock_archive_state),
+        patch(
+            "coreason_etl_rxnorm.main.execute_spatial_archive_extraction_task", return_value=mock_extraction_manifest
+        ),
+        patch("coreason_etl_rxnorm.main.execute_bronze_lake_upload_task", return_value=mock_bronze_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_conso_transmutation_task", return_value=mock_conso_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_rel_transmutation_task", return_value=mock_rel_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_sat_transmutation_task", return_value=mock_sat_manifest),
+        patch("coreason_etl_rxnorm.main.execute_gold_athena_registration_task", return_value=mock_gold_manifest),
+        patch(
+            "coreason_etl_rxnorm.main.execute_gold_postgres_load_task", return_value=mock_postgres_manifest
+        ) as mock_postgres,
+    ):
+        result = execute_federated_pipeline_intent(config)
+
+        assert result == mock_gold_manifest
+
+        mock_postgres.assert_called_once_with(
+            conso_manifest=mock_conso_manifest,
+            rel_manifest=mock_rel_manifest,
+            sat_manifest=mock_sat_manifest,
+            config=config,
+        )
+
+
+def test_main_skips_postgres_load() -> None:
+    config = FederatedRxNormConfigurationContract(
+        umls_api_key="mock_key",
+        bronze_bucket="s3://mock-bronze",
+        silver_bucket="s3://mock-silver",
+        athena_database="mock_db",
+    )
+
+    mock_metadata_manifest = EpistemicReleaseMetadataManifest(download_url="https://example.com/rxnorm.zip")
+    mock_archive_state = SpatialArchiveState(archive_path=pathlib.Path("mock_dir/mock.zip"))
+    mock_extraction_manifest = SpatialExtractionManifest(
+        extraction_path=pathlib.Path("mock_dir/mock_extract"),
+        extracted_files=[
+            pathlib.Path("mock_dir/mock_extract/RXNCONSO.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNREL.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNSAT.RRF"),
+        ],
+    )
+    mock_bronze_manifest = EpistemicBronzeUploadManifest(uploaded_s3_uris=["s3://mock-bronze/rxnorm.zip"])
+    mock_conso_manifest = EpistemicSilverConsoManifest(uploaded_s3_uri="s3://mock-silver/conso.parquet")
+    mock_rel_manifest = EpistemicSilverRelManifest(uploaded_s3_uri="s3://mock-silver/rel.parquet")
+    mock_sat_manifest = EpistemicSilverSatManifest(uploaded_s3_uri="s3://mock-silver/sat.parquet")
+    mock_gold_manifest = EpistemicGoldRegistrationManifest(registered_tables=["table1"])
+
+    with (
+        patch(
+            "coreason_etl_rxnorm.main.execute_epistemic_release_metadata_fetch_task",
+            return_value=mock_metadata_manifest,
+        ),
+        patch("coreason_etl_rxnorm.main.execute_epistemic_archive_download_task", return_value=mock_archive_state),
+        patch(
+            "coreason_etl_rxnorm.main.execute_spatial_archive_extraction_task", return_value=mock_extraction_manifest
+        ),
+        patch("coreason_etl_rxnorm.main.execute_bronze_lake_upload_task", return_value=mock_bronze_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_conso_transmutation_task", return_value=mock_conso_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_rel_transmutation_task", return_value=mock_rel_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_sat_transmutation_task", return_value=mock_sat_manifest),
+        patch("coreason_etl_rxnorm.main.execute_gold_athena_registration_task", return_value=mock_gold_manifest),
+        patch("coreason_etl_rxnorm.main.execute_gold_postgres_load_task") as mock_postgres,
+    ):
+        result = execute_federated_pipeline_intent(config)
+
+        assert result == mock_gold_manifest
+
+        mock_postgres.assert_not_called()

@@ -20,12 +20,14 @@ from pydantic import ValidationError
 from coreason_etl_rxnorm.config import NAMESPACE_RXNORM, FederatedRxNormConfigurationContract
 from coreason_etl_rxnorm.lake_manifold import (
     EpistemicBronzeUploadManifest,
+    EpistemicGoldPostgresManifest,
     EpistemicGoldRegistrationManifest,
     EpistemicSilverConsoManifest,
     EpistemicSilverRelManifest,
     EpistemicSilverSatManifest,
     execute_bronze_lake_upload_task,
     execute_gold_athena_registration_task,
+    execute_gold_postgres_load_task,
     execute_silver_conso_transmutation_task,
     execute_silver_rel_transmutation_task,
     execute_silver_sat_transmutation_task,
@@ -450,6 +452,202 @@ def test_execute_gold_athena_registration_task_success(
     assert "dim_rxnorm_concept" in tables
     assert "fact_rxnorm_relationship" in tables
     assert "bridge_rxnorm_ndc" in tables
+
+
+def test_epistemic_gold_postgres_manifest_validation() -> None:
+    """Test validation of EpistemicGoldPostgresManifest."""
+    manifest = EpistemicGoldPostgresManifest(loaded_tables=["table1", "table2"])
+    assert manifest.loaded_tables == ["table1", "table2"]
+
+    with pytest.raises(ValidationError):
+        EpistemicGoldPostgresManifest()  # type: ignore[call-arg]
+
+
+@mock_aws
+def test_execute_gold_postgres_load_task_success(
+    mock_config: FederatedRxNormConfigurationContract,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test successful load of Gold tables into PostgreSQL."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+    mock_config.pghost = "localhost"
+    mock_config.pgport = 5432
+    mock_config.pguser = "postgres"
+    mock_config.pgpassword = "password"
+    mock_config.pgdatabase = "coreason"
+
+    # Mock dlt pipeline
+    import dlt
+
+    class MockPipeline:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def run(self, _data: object, **kwargs: object) -> None:
+            to_sql_calls.append(kwargs)
+
+    to_sql_calls: list[dict[str, object]] = []
+
+    def mock_pipeline(*args: object, **kwargs: object) -> MockPipeline:
+        return MockPipeline(*args, **kwargs)
+
+    monkeypatch.setattr(dlt, "pipeline", mock_pipeline)
+
+    # Need to execute the generator to cover stream_parquet_chunks
+    original_run = MockPipeline.run
+
+    def mocked_run(self: MockPipeline, data: object, **kwargs: object) -> None:
+        original_run(self, data, **kwargs)
+        # Execute generator
+        import types
+
+        if isinstance(data, types.GeneratorType):
+            list(data)
+
+    monkeypatch.setattr(MockPipeline, "run", mocked_run)
+
+    # Mock pyarrow.parquet
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    class MockParquetFile:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def iter_batches(self, *_args: object, **_kwargs: object) -> list[pa.RecordBatch]:
+            schema = pa.schema([("col1", pa.int64())])
+            batch = pa.RecordBatch.from_arrays([pa.array([1])], schema=schema)
+            return [batch]
+
+    monkeypatch.setattr(pq, "ParquetFile", MockParquetFile)
+
+    # Mock boto3 client download_file
+    def mock_download_file(*_args: object, **_kwargs: object) -> None:
+        pass
+
+    import boto3
+
+    class MockS3Client:
+        def download_file(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+    def mock_boto3_client(*_args: object, **_kwargs: object) -> MockS3Client:
+        return MockS3Client()
+
+    monkeypatch.setattr(boto3, "client", mock_boto3_client)
+
+    conso_manifest = EpistemicSilverConsoManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"
+    )
+    rel_manifest = EpistemicSilverRelManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+    )
+    sat_manifest = EpistemicSilverSatManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+    )
+
+    manifest = execute_gold_postgres_load_task(
+        conso_manifest,
+        rel_manifest,
+        sat_manifest,
+        mock_config,
+    )
+
+    assert isinstance(manifest, EpistemicGoldPostgresManifest)
+    assert manifest.loaded_tables == [
+        "bridge_rxnorm_ndc",
+        "dim_rxnorm_concept",
+        "fact_rxnorm_relationship",
+    ]
+
+    assert len(to_sql_calls) == 3
+
+    # Verify expected parameters
+    tables_called = [call.get("table_name") for call in to_sql_calls]
+    assert "dim_rxnorm_concept" in tables_called
+    assert "fact_rxnorm_relationship" in tables_called
+    assert "bridge_rxnorm_ndc" in tables_called
+
+    for call in to_sql_calls:
+        assert call.get("write_disposition") == "merge"
+        if call.get("table_name") == "fact_rxnorm_relationship":
+            assert call.get("primary_key") == [
+                "source_coreason_id",
+                "target_coreason_id",
+                "relationship_type",
+            ]
+        elif call.get("table_name") == "bridge_rxnorm_ndc":
+            assert call.get("primary_key") == ["coreason_id", "ndc_code"]
+        else:
+            assert call.get("primary_key") == ["coreason_id"]
+
+
+@mock_aws
+def test_execute_gold_postgres_load_task_failure(
+    mock_config: FederatedRxNormConfigurationContract,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test failure of Gold Postgres load task."""
+    import os
+
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+    mock_config.pghost = "localhost"
+    mock_config.pgport = 5432
+    mock_config.pguser = "postgres"
+    mock_config.pgpassword = "password"
+    mock_config.pgdatabase = "coreason"
+
+    import dlt
+
+    def mock_pipeline_fail(*_args: object, **_kwargs: object) -> None:
+        raise Exception("Mocked connection failure")
+
+    monkeypatch.setattr(dlt, "pipeline", mock_pipeline_fail)
+
+    conso_manifest = EpistemicSilverConsoManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"
+    )
+    rel_manifest = EpistemicSilverRelManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+    )
+    sat_manifest = EpistemicSilverSatManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+    )
+
+    with pytest.raises(Exception, match=r"Mocked connection failure"):
+        execute_gold_postgres_load_task(
+            conso_manifest,
+            rel_manifest,
+            sat_manifest,
+            mock_config,
+        )
+
+
+def test_execute_gold_postgres_load_task_missing_config(
+    mock_config: FederatedRxNormConfigurationContract,
+) -> None:
+    """Test failure of Gold Postgres load task when config is missing."""
+    conso_manifest = EpistemicSilverConsoManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"
+    )
+    rel_manifest = EpistemicSilverRelManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/fact_rxnorm_relationship/fact_rxnorm_relationship.parquet"
+    )
+    sat_manifest = EpistemicSilverSatManifest(
+        uploaded_s3_uri="s3://mock-silver/rxnorm/clean/bridge_rxnorm_ndc/bridge_rxnorm_ndc.parquet"
+    )
+
+    with pytest.raises(ValueError, match=r"PostgreSQL configuration is incomplete\."):
+        execute_gold_postgres_load_task(
+            conso_manifest,
+            rel_manifest,
+            sat_manifest,
+            mock_config,
+        )
 
 
 @mock_aws

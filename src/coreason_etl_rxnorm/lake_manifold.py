@@ -493,6 +493,128 @@ class EpistemicGoldRegistrationManifest(BaseModel):
     )
 
 
+class EpistemicGoldPostgresManifest(BaseModel):
+    """
+    AGENT INSTRUCTION: This object represents the mandatory epistemic state
+    of successfully loaded Gold tables in the PostgreSQL database.
+    """
+
+    loaded_tables: list[str] = Field(
+        ...,
+        description="The names of the tables successfully loaded into PostgreSQL.",
+    )
+
+
+def execute_gold_postgres_load_task(
+    conso_manifest: EpistemicSilverConsoManifest,
+    rel_manifest: EpistemicSilverRelManifest,
+    sat_manifest: EpistemicSilverSatManifest,
+    config: FederatedRxNormConfigurationContract,
+) -> EpistemicGoldPostgresManifest:
+    """
+    AGENT INSTRUCTION: Executes the intent to load the Silver Parquet outputs
+    into the core PostgreSQL database using dlt for memory-safe chunked streaming.
+
+    Args:
+        conso_manifest: The EpistemicSilverConsoManifest containing the Silver Parquet URI.
+        rel_manifest: The EpistemicSilverRelManifest containing the Silver Parquet URI.
+        sat_manifest: The EpistemicSilverSatManifest containing the Silver Parquet URI.
+        config: The configuration contract containing PostgreSQL connection details.
+
+    Returns:
+        An EpistemicGoldPostgresManifest containing the names of the loaded tables.
+
+    Raises:
+        Exception: If the PostgreSQL load fails.
+    """
+    logger.info("Executing GoldPostgresLoadTask to push Gold tables into PostgreSQL.")
+
+    if not config.pghost or not config.pgport or not config.pguser or not config.pgpassword or not config.pgdatabase:
+        raise ValueError("PostgreSQL configuration is incomplete.")
+
+    loaded_tables = []
+
+    datasets = [
+        (
+            "dim_rxnorm_concept",
+            conso_manifest.uploaded_s3_uri,
+            ["coreason_id"],
+        ),
+        (
+            "fact_rxnorm_relationship",
+            rel_manifest.uploaded_s3_uri,
+            ["source_coreason_id", "target_coreason_id", "relationship_type"],
+        ),
+        (
+            "bridge_rxnorm_ndc",
+            sat_manifest.uploaded_s3_uri,
+            ["coreason_id", "ndc_code"],
+        ),
+    ]
+
+    try:
+        import dlt
+
+        credentials = (
+            f"postgresql://{config.pguser}:{config.pgpassword}@{config.pghost}:{config.pgport}/{config.pgdatabase}"
+        )
+
+        pipeline = dlt.pipeline(
+            pipeline_name="rxnorm_gold_pipeline",
+            destination=dlt.destinations.postgres(credentials),
+            dataset_name="public",
+        )
+
+        for table_name, s3_uri, merge_keys in datasets:
+            logger.debug(f"Loading Gold table {table_name} into PostgreSQL from {s3_uri}.")
+
+            # S3 URIs format handling
+            bucket_name = s3_uri.removeprefix("s3://").split("/")[0]
+            s3_key = "/".join(s3_uri.removeprefix("s3://").split("/")[1:])
+
+            # Define a generator function to stream from Polars without loading the whole file in memory
+            # We first download the parquet to a local temp file securely, then read chunks using polars
+            def stream_parquet_chunks(b_name: str = bucket_name, s_key: str = s3_key):  # type: ignore[no-untyped-def]
+                s3_client = boto3.client("s3")
+
+                with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                    tmp_path = tmp.name
+
+                try:
+                    s3_client.download_file(b_name, s_key, tmp_path)
+
+                    # Instead of collecting everything, use pyarrow to iterate batches
+                    import pyarrow.parquet as pq
+
+                    parquet_file = pq.ParquetFile(tmp_path)
+                    for batch in parquet_file.iter_batches(batch_size=50000):
+                        # Convert arrow batch to python dicts which dlt natively streams
+                        yield batch.to_pylist()
+
+                finally:
+                    if pathlib.Path(tmp_path).exists():
+                        pathlib.Path(tmp_path).unlink()
+
+            pipeline.run(
+                stream_parquet_chunks(),
+                table_name=table_name,
+                write_disposition="merge",
+                primary_key=merge_keys,
+            )
+
+            loaded_tables.append(table_name)
+
+    except Exception as e:
+        logger.exception("Failed to execute GoldPostgresLoadTask.")
+        raise e
+
+    logger.info("Successfully loaded Gold tables into EpistemicGoldPostgresManifest.")
+
+    loaded_tables.sort()
+
+    return EpistemicGoldPostgresManifest(loaded_tables=loaded_tables)
+
+
 def execute_gold_athena_registration_task(
     conso_manifest: EpistemicSilverConsoManifest,
     rel_manifest: EpistemicSilverRelManifest,

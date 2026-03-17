@@ -13,6 +13,7 @@ from coreason_etl_rxnorm.lake_manifold import (
     EpistemicGoldRegistrationManifest,
     execute_bronze_lake_upload_task,
     execute_gold_athena_registration_task,
+    execute_gold_postgres_load_task,
     execute_silver_conso_transmutation_task,
     execute_silver_rel_transmutation_task,
     execute_silver_sat_transmutation_task,
@@ -64,6 +65,15 @@ def execute_federated_pipeline_intent(
         sat_manifest=sat_manifest,
         config=config,
     )
+
+    # 5. Optional Lake Manifold: Gold PostgreSQL Load
+    if config.pghost and config.pgport and config.pguser and config.pgpassword and config.pgdatabase:
+        _postgres_manifest = execute_gold_postgres_load_task(
+            conso_manifest=conso_manifest,
+            rel_manifest=rel_manifest,
+            sat_manifest=sat_manifest,
+            config=config,
+        )
 
     logger.info("Successfully executed federated RxNorm ETL pipeline intent.")
 
