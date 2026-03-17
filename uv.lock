@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.14"
+resolution-markers = [
+    "platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
+    "platform_python_implementation == 'PyPy' or sys_platform == 'emscripten'",
+]
 
 [[package]]
 name = "annotated-types"
@@ -227,6 +231,7 @@ dev = [
 requires-dist = [
     { name = "awswrangler", specifier = ">=3.15.1" },
     { name = "boto3", specifier = ">=1.42.68" },
+    { name = "dlt", marker = "python_full_version < '3.14'", specifier = ">=1.23.0" },
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "polars", specifier = ">=1.39.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
