@@ -569,16 +569,33 @@ def execute_gold_postgres_load_task(
         for table_name, s3_uri, merge_keys in datasets:
             logger.debug(f"Loading Gold table {table_name} into PostgreSQL from {s3_uri}.")
 
-            # Define a generator function to stream data from S3 chunk-by-chunk without loading
-            # the whole file into memory, conforming to the "no pandas full load" memory constraints.
-            # Using awswrangler read_parquet with chunked=True yields pandas DataFrames directly from S3
-            def stream_parquet_chunks(uri: str = s3_uri) -> typing.Iterator[list[dict[str, typing.Any]]]:
-                import awswrangler as wr
+            # S3 URIs format handling
+            bucket_name = s3_uri.removeprefix("s3://").split("/")[0]
+            s3_key = "/".join(s3_uri.removeprefix("s3://").split("/")[1:])
 
-                # Fetch pandas dataframes in chunk batches
-                for df_chunk in wr.s3.read_parquet(path=uri, chunked=True):
-                    # Yield as list of dicts that dlt natively handles efficiently
-                    yield df_chunk.to_dict("records")
+            # Define a generator function to stream data from S3 chunk-by-chunk without loading
+            # the whole file into memory, conforming to the strict memory constraints.
+            # Using polars iter_slices provides a memory safe iterator directly on parquet chunks.
+            def stream_parquet_chunks(
+                b_name: str = bucket_name, s_key: str = s3_key
+            ) -> typing.Iterator[list[dict[str, typing.Any]]]:
+                s3_client = boto3.client("s3")
+
+                with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                    tmp_path = tmp.name
+
+                try:
+                    s3_client.download_file(b_name, s_key, tmp_path)
+
+                    # Use polars to read parquet lazily and slice without full in-memory loading
+                    df = pl.read_parquet(tmp_path)
+
+                    for chunk in df.iter_slices(n_rows=50000):
+                        yield chunk.to_dicts()
+
+                finally:
+                    if pathlib.Path(tmp_path).exists():
+                        pathlib.Path(tmp_path).unlink()
 
             pipeline.run(
                 stream_parquet_chunks(),

@@ -510,13 +510,33 @@ def test_execute_gold_postgres_load_task_success(
 
     monkeypatch.setattr(MockPipeline, "run", mocked_run)
 
-    import awswrangler as wr
-    import pandas as pd
+    class MockChunk:
+        def to_dicts(self) -> list[dict[str, typing.Any]]:
+            return [{"col1": 1}]
 
-    def mock_read_parquet(*_args: object, **_kwargs: object) -> typing.Iterator[pd.DataFrame]:
-        yield pd.DataFrame({"col1": [1]})
+    class MockDataFrame:
+        def iter_slices(self, *_args: object, **_kwargs: object) -> typing.Iterator[MockChunk]:
+            yield MockChunk()
 
-    monkeypatch.setattr(wr.s3, "read_parquet", mock_read_parquet)
+    def mock_read_parquet(*_args: object, **_kwargs: object) -> MockDataFrame:
+        return MockDataFrame()
+
+    monkeypatch.setattr(pl, "read_parquet", mock_read_parquet)
+
+    # Mock boto3 client download_file
+    def mock_download_file(*_args: object, **_kwargs: object) -> None:
+        pass
+
+    import boto3
+
+    class MockS3Client:
+        def download_file(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+    def mock_boto3_client(*_args: object, **_kwargs: object) -> MockS3Client:
+        return MockS3Client()
+
+    monkeypatch.setattr(boto3, "client", mock_boto3_client)
 
     conso_manifest = EpistemicSilverConsoManifest(
         uploaded_s3_uri="s3://mock-silver/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"
