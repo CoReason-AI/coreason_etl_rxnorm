@@ -9,6 +9,7 @@
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 import pathlib
 import tempfile
+import typing
 
 import boto3
 import polars as pl
@@ -509,35 +510,13 @@ def test_execute_gold_postgres_load_task_success(
 
     monkeypatch.setattr(MockPipeline, "run", mocked_run)
 
-    # Mock pyarrow.parquet
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+    import awswrangler as wr
+    import pandas as pd
 
-    class MockParquetFile:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
+    def mock_read_parquet(*_args: object, **_kwargs: object) -> typing.Iterator[pd.DataFrame]:
+        yield pd.DataFrame({"col1": [1]})
 
-        def iter_batches(self, *_args: object, **_kwargs: object) -> list[pa.RecordBatch]:
-            schema = pa.schema([("col1", pa.int64())])
-            batch = pa.RecordBatch.from_arrays([pa.array([1])], schema=schema)
-            return [batch]
-
-    monkeypatch.setattr(pq, "ParquetFile", MockParquetFile)
-
-    # Mock boto3 client download_file
-    def mock_download_file(*_args: object, **_kwargs: object) -> None:
-        pass
-
-    import boto3
-
-    class MockS3Client:
-        def download_file(self, *_args: object, **_kwargs: object) -> None:
-            pass
-
-    def mock_boto3_client(*_args: object, **_kwargs: object) -> MockS3Client:
-        return MockS3Client()
-
-    monkeypatch.setattr(boto3, "client", mock_boto3_client)
+    monkeypatch.setattr(wr.s3, "read_parquet", mock_read_parquet)
 
     conso_manifest = EpistemicSilverConsoManifest(
         uploaded_s3_uri="s3://mock-silver/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"

@@ -11,6 +11,7 @@
 import pathlib
 import shutil
 import tempfile
+import typing
 import uuid
 
 import awswrangler as wr
@@ -568,32 +569,16 @@ def execute_gold_postgres_load_task(
         for table_name, s3_uri, merge_keys in datasets:
             logger.debug(f"Loading Gold table {table_name} into PostgreSQL from {s3_uri}.")
 
-            # S3 URIs format handling
-            bucket_name = s3_uri.removeprefix("s3://").split("/")[0]
-            s3_key = "/".join(s3_uri.removeprefix("s3://").split("/")[1:])
+            # Define a generator function to stream data from S3 chunk-by-chunk without loading
+            # the whole file into memory, conforming to the "no pandas full load" memory constraints.
+            # Using awswrangler read_parquet with chunked=True yields pandas DataFrames directly from S3
+            def stream_parquet_chunks(uri: str = s3_uri) -> typing.Iterator[list[dict[str, typing.Any]]]:
+                import awswrangler as wr
 
-            # Define a generator function to stream from Polars without loading the whole file in memory
-            # We first download the parquet to a local temp file securely, then read chunks using polars
-            def stream_parquet_chunks(b_name: str = bucket_name, s_key: str = s3_key):  # type: ignore[no-untyped-def]
-                s3_client = boto3.client("s3")
-
-                with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
-                    tmp_path = tmp.name
-
-                try:
-                    s3_client.download_file(b_name, s_key, tmp_path)
-
-                    # Instead of collecting everything, use pyarrow to iterate batches
-                    import pyarrow.parquet as pq
-
-                    parquet_file = pq.ParquetFile(tmp_path)
-                    for batch in parquet_file.iter_batches(batch_size=50000):
-                        # Convert arrow batch to python dicts which dlt natively streams
-                        yield batch.to_pylist()
-
-                finally:
-                    if pathlib.Path(tmp_path).exists():
-                        pathlib.Path(tmp_path).unlink()
+                # Fetch pandas dataframes in chunk batches
+                for df_chunk in wr.s3.read_parquet(path=uri, chunked=True):
+                    # Yield as list of dicts that dlt natively handles efficiently
+                    yield df_chunk.to_dict("records")
 
             pipeline.run(
                 stream_parquet_chunks(),
