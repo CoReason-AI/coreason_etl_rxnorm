@@ -480,8 +480,13 @@ def test_execute_gold_postgres_load_task_success(
     mock_config.pgpassword = "password"
     mock_config.pgdatabase = "coreason"
 
-    # Mock dlt pipeline
-    import dlt
+    # Mock dlt pipeline to pass even if it is not installed
+    import sys
+    from unittest.mock import MagicMock
+
+    dlt_mock = MagicMock()
+    sys.modules["dlt"] = dlt_mock
+    sys.modules["dlt.destinations"] = MagicMock()
 
     class MockPipeline:
         def __init__(self, *args: object, **kwargs: object) -> None:
@@ -495,7 +500,8 @@ def test_execute_gold_postgres_load_task_success(
     def mock_pipeline(*args: object, **kwargs: object) -> MockPipeline:
         return MockPipeline(*args, **kwargs)
 
-    monkeypatch.setattr(dlt, "pipeline", mock_pipeline)
+    dlt_mock.pipeline = mock_pipeline
+    dlt_mock.destinations.postgres = MagicMock()
 
     # Need to execute the generator to cover stream_parquet_chunks
     original_run = MockPipeline.run
@@ -587,7 +593,6 @@ def test_execute_gold_postgres_load_task_success(
 @mock_aws
 def test_execute_gold_postgres_load_task_failure(
     mock_config: FederatedRxNormConfigurationContract,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test failure of Gold Postgres load task."""
     import os
@@ -600,12 +605,18 @@ def test_execute_gold_postgres_load_task_failure(
     mock_config.pgpassword = "password"
     mock_config.pgdatabase = "coreason"
 
-    import dlt
+    import sys
+    from unittest.mock import MagicMock
+
+    dlt_mock = MagicMock()
+    sys.modules["dlt"] = dlt_mock
+    sys.modules["dlt.destinations"] = MagicMock()
 
     def mock_pipeline_fail(*_args: object, **_kwargs: object) -> None:
         raise Exception("Mocked connection failure")
 
-    monkeypatch.setattr(dlt, "pipeline", mock_pipeline_fail)
+    dlt_mock.pipeline = mock_pipeline_fail
+    dlt_mock.destinations.postgres = MagicMock()
 
     conso_manifest = EpistemicSilverConsoManifest(
         uploaded_s3_uri="s3://mock-silver/rxnorm/clean/dim_rxnorm_concept/dim_rxnorm_concept.parquet"

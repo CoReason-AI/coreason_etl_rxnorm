@@ -554,10 +554,20 @@ def execute_gold_postgres_load_task(
     ]
 
     try:
-        import dlt
+        try:
+            import dlt
+        except ImportError as e:  # pragma: no cover
+            raise RuntimeError(
+                "dlt is required for PostgreSQL load but is not installed. "
+                "Note: dlt might not be supported on this Python version."
+            ) from e
 
+        import urllib.parse
+
+        # URL-encode the password to safely handle special characters like '@' or ':'
+        safe_password = urllib.parse.quote_plus(config.pgpassword) if config.pgpassword else ""
         credentials = (
-            f"postgresql://{config.pguser}:{config.pgpassword}@{config.pghost}:{config.pgport}/{config.pgdatabase}"
+            f"postgresql://{config.pguser}:{safe_password}@{config.pghost}:{config.pgport}/{config.pgdatabase}"
         )
 
         pipeline = dlt.pipeline(
