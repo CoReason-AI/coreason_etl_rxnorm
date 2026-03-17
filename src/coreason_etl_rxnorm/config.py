@@ -31,3 +31,10 @@ class FederatedRxNormConfigurationContract(BaseSettings):
     bronze_bucket: str = Field(..., description="The S3 URI prefix for the Bronze data lake zone.")
     silver_bucket: str = Field(..., description="The S3 URI prefix for the Silver data lake zone.")
     athena_database: str = Field(..., description="The name of the AWS Glue Data Catalog database for Athena queries.")
+
+    # Optional PostgreSQL Database Configuration for final Gold load
+    pghost: str | None = Field(None, description="The hostname of the PostgreSQL database.")
+    pgport: int | None = Field(None, description="The port of the PostgreSQL database.")
+    pguser: str | None = Field(None, description="The username for the PostgreSQL database.")
+    pgpassword: str | None = Field(None, description="The password for the PostgreSQL database.")
+    pgdatabase: str | None = Field(None, description="The name of the PostgreSQL database.")

@@ -35,8 +35,13 @@ def test_deterministic_uuid5_generation() -> None:
     assert uuid1 != uuid3
 
 
-def test_valid_configuration() -> None:
+def test_valid_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test valid configuration contract initialization."""
+    monkeypatch.delenv("PGHOST", raising=False)
+    monkeypatch.delenv("PGPORT", raising=False)
+    monkeypatch.delenv("PGUSER", raising=False)
+    monkeypatch.delenv("PGPASSWORD", raising=False)
+    monkeypatch.delenv("PGDATABASE", raising=False)
     config = FederatedRxNormConfigurationContract(
         umls_api_key="valid_key",
         bronze_bucket="s3://bronze-bucket",
@@ -47,6 +52,32 @@ def test_valid_configuration() -> None:
     assert config.bronze_bucket == "s3://bronze-bucket"
     assert config.silver_bucket == "s3://silver-bucket"
     assert config.athena_database == "my_database"
+    # Ensure optional fields are None by default
+    assert config.pghost is None
+    assert config.pgport is None
+    assert config.pguser is None
+    assert config.pgpassword is None
+    assert config.pgdatabase is None
+
+
+def test_configuration_with_postgres() -> None:
+    """Test valid configuration contract initialization with PostgreSQL settings."""
+    config = FederatedRxNormConfigurationContract(
+        umls_api_key="valid_key",
+        bronze_bucket="s3://bronze-bucket",
+        silver_bucket="s3://silver-bucket",
+        athena_database="my_database",
+        pghost="localhost",
+        pgport=5432,
+        pguser="postgres",
+        pgpassword="password",
+        pgdatabase="coreason",
+    )
+    assert config.pghost == "localhost"
+    assert config.pgport == 5432
+    assert config.pguser == "postgres"
+    assert config.pgpassword == "password"
+    assert config.pgdatabase == "coreason"
 
 
 def test_missing_fields() -> None:
@@ -63,6 +94,13 @@ def test_missing_fields() -> None:
 @given(api_key=st.text())
 def test_hypothesis_umls_api_key(api_key: str) -> None:
     """Property-based test for UMLS API key (as arbitrary string)."""
+    import os
+
+    # Temporarily remove PG environment variables that might interfere on CI runners
+    for k in ["PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE"]:
+        if k in os.environ:
+            del os.environ[k]
+
     config = FederatedRxNormConfigurationContract(
         umls_api_key=api_key,
         bronze_bucket="s3://bronze-bucket",
