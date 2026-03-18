@@ -555,7 +555,7 @@ def execute_gold_postgres_load_task(
 
     try:
         try:
-            import dlt
+            import dlt  # type: ignore[import-not-found,import-untyped,unused-ignore]
         except ImportError as e:  # pragma: no cover
             raise RuntimeError(
                 "dlt is required for PostgreSQL load but is not installed. "
