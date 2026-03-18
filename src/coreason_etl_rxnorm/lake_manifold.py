@@ -433,11 +433,11 @@ def execute_silver_sat_transmutation_task(
                 return_dtype=pl.String,
             )
             .alias("coreason_id"),
+            pl.col("ATV").str.zfill(11).alias("ndc_code"),
         )
         .rename(
             {
                 "RXCUI": "rxcui_id",
-                "ATV": "ndc_code",
             }
         )
         .select(

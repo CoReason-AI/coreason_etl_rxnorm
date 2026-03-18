@@ -304,8 +304,10 @@ def test_execute_silver_sat_transmutation_task_success(
 
     # Create dummy RXNSAT.RRF
     with tempfile.NamedTemporaryFile(suffix=".RRF", delete=False, mode="w") as temp_file:
-        # valid row (ATN=NDC)
+        # valid row 1 (ATN=NDC, already 11 digits)
         temp_file.write("1111||||||||NDC|RXNORM|00000000000|||\n")
+        # valid row 2 (ATN=NDC, 10 digits, should be padded)
+        temp_file.write("2222||||||||NDC|RXNORM|1234567890|||\n")
         # invalid row (ATN=SNOMEDCT_US or ATN=ATC)
         temp_file.write("3333||||||||ATC|SNOMEDCT_US|A01AA|||\n")
 
@@ -326,18 +328,19 @@ def test_execute_silver_sat_transmutation_task_success(
 
         df = pl.read_parquet(temp_path.parent / "downloaded_sat.parquet")
 
-        # Should only contain RXCUI 1111
-        assert len(df) == 1
+        # Should only contain RXCUI 1111 and 2222
+        assert len(df) == 2
 
         # Check typing and specific values
         assert df["rxcui_id"].dtype == pl.String
-        assert df["rxcui_id"].to_list() == ["1111"]
-        assert df["ndc_code"].to_list() == ["00000000000"]
+        assert df["rxcui_id"].to_list() == ["1111", "2222"]
+        assert df["ndc_code"].to_list() == ["00000000000", "01234567890"]
 
         import uuid
 
         expected_id_1111 = str(uuid.uuid5(NAMESPACE_RXNORM, "1111"))
-        assert df["coreason_id"].to_list() == [expected_id_1111]
+        expected_id_2222 = str(uuid.uuid5(NAMESPACE_RXNORM, "2222"))
+        assert df["coreason_id"].to_list() == [expected_id_1111, expected_id_2222]
 
     finally:
         if temp_path.exists():
