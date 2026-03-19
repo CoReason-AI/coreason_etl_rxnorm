@@ -8,6 +8,9 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 
+import argparse
+import sys
+
 from coreason_etl_rxnorm.config import FederatedRxNormConfigurationContract
 from coreason_etl_rxnorm.lake_manifold import (
     EpistemicGoldRegistrationManifest,
@@ -78,3 +81,85 @@ def execute_federated_pipeline_intent(
     logger.info("Successfully executed federated RxNorm ETL pipeline intent.")
 
     return gold_manifest
+
+
+def main() -> None:
+    """
+    AGENT INSTRUCTION: Primary entry point for executing the pipeline via CLI.
+    """
+    parser = argparse.ArgumentParser(
+        description="CoReason ETL Pipeline for RxNorm",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--umls-api-key",
+        type=str,
+        default=None,
+        help="The API key required to authenticate with the UMLS Terminology Services.",
+    )
+    parser.add_argument(
+        "--bronze-bucket",
+        type=str,
+        default=None,
+        help="The S3 URI prefix for the Bronze data lake zone.",
+    )
+    parser.add_argument(
+        "--silver-bucket",
+        type=str,
+        default=None,
+        help="The S3 URI prefix for the Silver data lake zone.",
+    )
+    parser.add_argument(
+        "--athena-database",
+        type=str,
+        default=None,
+        help="The name of the AWS Glue Data Catalog database for Athena queries.",
+    )
+    parser.add_argument(
+        "--pghost",
+        type=str,
+        default=None,
+        help="The hostname of the PostgreSQL database.",
+    )
+    parser.add_argument(
+        "--pgport",
+        type=int,
+        default=None,
+        help="The port of the PostgreSQL database.",
+    )
+    parser.add_argument(
+        "--pguser",
+        type=str,
+        default=None,
+        help="The username for the PostgreSQL database.",
+    )
+    parser.add_argument(
+        "--pgpassword",
+        type=str,
+        default=None,
+        help="The password for the PostgreSQL database.",
+    )
+    parser.add_argument(
+        "--pgdatabase",
+        type=str,
+        default=None,
+        help="The name of the PostgreSQL database.",
+    )
+
+    args = parser.parse_args()
+
+    # Filter out None values to allow fallback to environment variables
+    # mapped by pydantic_settings.BaseSettings
+    config_kwargs = {k: v for k, v in vars(args).items() if v is not None}
+
+    try:
+        config = FederatedRxNormConfigurationContract(**config_kwargs)
+        execute_federated_pipeline_intent(config)
+    except Exception:
+        logger.exception("Pipeline execution failed.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()
