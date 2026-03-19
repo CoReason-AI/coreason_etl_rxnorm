@@ -272,6 +272,85 @@ def test_cli_execution_failure_missing_args() -> None:
     assert exc_info.value.code == 1
 
 
+@patch("sys.argv", ["main.py", "--pgport", "invalid_port"])
+@patch.dict("os.environ", {}, clear=True)
+def test_cli_execution_invalid_port_type() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 2
+
+
+@patch("sys.argv", ["main.py", "--unknown-arg", "value"])
+@patch.dict("os.environ", {}, clear=True)
+def test_cli_execution_unrecognized_arg() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 2
+
+
+@patch(
+    "sys.argv",
+    [
+        "main.py",
+        "--umls-api-key",
+        "cli_key",
+        "--pghost",
+        "cli_host",
+    ],
+)
+@patch.dict(
+    "os.environ",
+    {
+        "BRONZE_BUCKET": "s3://env-bronze",
+        "SILVER_BUCKET": "s3://env-silver",
+        "ATHENA_DATABASE": "env_db",
+        "PGPORT": "5432",
+    },
+)
+@patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent")
+def test_cli_execution_mixed_args_and_env(mock_execute: MagicMock) -> None:
+    main()
+    mock_execute.assert_called_once()
+    config_arg = mock_execute.call_args[0][0]
+
+    # CLI args
+    assert config_arg.umls_api_key == "cli_key"
+    assert config_arg.pghost == "cli_host"
+
+    # Env vars
+    assert config_arg.bronze_bucket == "s3://env-bronze"
+    assert config_arg.silver_bucket == "s3://env-silver"
+    assert config_arg.athena_database == "env_db"
+    assert config_arg.pgport == 5432
+
+
+@patch(
+    "sys.argv",
+    [
+        "main.py",
+        "--umls-api-key",
+        "cli_key",
+        "--bronze-bucket",
+        "s3://cli-bronze",
+        "--silver-bucket",
+        "s3://cli-silver",
+        "--athena-database",
+        "cli_db",
+    ],
+)
+@patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent", side_effect=Exception("Pipeline failed"))
+def test_cli_execution_pipeline_failure(_mock_execute: MagicMock) -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+
+
 def test_main_module_execution() -> None:
     import contextlib
     import runpy
