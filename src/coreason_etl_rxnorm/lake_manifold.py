@@ -537,17 +537,17 @@ def execute_gold_postgres_load_task(
 
     datasets = [
         (
-            "dim_rxnorm_concept",
+            "coreason_etl_rxnorm_gold_dim_rxnorm_concept",
             conso_manifest.uploaded_s3_uri,
             ["coreason_id"],
         ),
         (
-            "fact_rxnorm_relationship",
+            "coreason_etl_rxnorm_gold_fact_rxnorm_relationship",
             rel_manifest.uploaded_s3_uri,
             ["source_coreason_id", "target_coreason_id", "relationship_type"],
         ),
         (
-            "bridge_rxnorm_ndc",
+            "coreason_etl_rxnorm_gold_bridge_rxnorm_ndc",
             sat_manifest.uploaded_s3_uri,
             ["coreason_id", "ndc_code"],
         ),
@@ -573,7 +573,7 @@ def execute_gold_postgres_load_task(
         pipeline = dlt.pipeline(
             pipeline_name="rxnorm_gold_pipeline",
             destination=dlt.destinations.postgres(credentials),
-            dataset_name="public",
+            dataset_name="gold",
         )
 
         for table_name, s3_uri, merge_keys in datasets:

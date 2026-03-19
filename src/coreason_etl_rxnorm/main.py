@@ -8,6 +8,9 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 
+import argparse
+import sys
+
 from coreason_etl_rxnorm.config import FederatedRxNormConfigurationContract
 from coreason_etl_rxnorm.lake_manifold import (
     EpistemicGoldRegistrationManifest,
@@ -78,3 +81,52 @@ def execute_federated_pipeline_intent(
     logger.info("Successfully executed federated RxNorm ETL pipeline intent.")
 
     return gold_manifest
+
+
+def main() -> None:
+    """
+    AGENT INSTRUCTION: Primary entry point for executing the pipeline via CLI.
+    """
+    parser = argparse.ArgumentParser(
+        description="CoReason ETL Pipeline for RxNorm",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    # Dynamically build CLI arguments from the Pydantic configuration contract
+    # to enforce DRY principles and ensure CLI is always synchronized with schemas.
+    for field_name, field_info in FederatedRxNormConfigurationContract.model_fields.items():
+        cli_arg_name = f"--{field_name.replace('_', '-')}"
+
+        # Determine the base type, unwrapping Optionals (e.g., str | None)
+        # We check the annotation directly
+        base_type: type = str
+        if (
+            field_info.annotation is int or getattr(field_info.annotation, "__origin__", None) is int
+        ):  # pragma: no cover
+            base_type = int
+        elif field_info.annotation == int | None:
+            base_type = int
+
+        parser.add_argument(
+            cli_arg_name,
+            type=base_type,
+            default=None,
+            help=field_info.description,
+        )
+
+    args = parser.parse_args()
+
+    # Filter out None values to allow fallback to environment variables
+    # mapped by pydantic_settings.BaseSettings
+    config_kwargs = {k: v for k, v in vars(args).items() if v is not None}
+
+    try:
+        config = FederatedRxNormConfigurationContract(**config_kwargs)
+        execute_federated_pipeline_intent(config)
+    except Exception:
+        logger.exception("Pipeline execution failed.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()
