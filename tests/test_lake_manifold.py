@@ -566,28 +566,28 @@ def test_execute_gold_postgres_load_task_success(
 
     assert isinstance(manifest, EpistemicGoldPostgresManifest)
     assert manifest.loaded_tables == [
-        "bridge_rxnorm_ndc",
-        "dim_rxnorm_concept",
-        "fact_rxnorm_relationship",
+        "coreason_etl_rxnorm_gold_bridge_rxnorm_ndc",
+        "coreason_etl_rxnorm_gold_dim_rxnorm_concept",
+        "coreason_etl_rxnorm_gold_fact_rxnorm_relationship",
     ]
 
     assert len(to_sql_calls) == 3
 
     # Verify expected parameters
     tables_called = [call.get("table_name") for call in to_sql_calls]
-    assert "dim_rxnorm_concept" in tables_called
-    assert "fact_rxnorm_relationship" in tables_called
-    assert "bridge_rxnorm_ndc" in tables_called
+    assert "coreason_etl_rxnorm_gold_dim_rxnorm_concept" in tables_called
+    assert "coreason_etl_rxnorm_gold_fact_rxnorm_relationship" in tables_called
+    assert "coreason_etl_rxnorm_gold_bridge_rxnorm_ndc" in tables_called
 
     for call in to_sql_calls:
         assert call.get("write_disposition") == "merge"
-        if call.get("table_name") == "fact_rxnorm_relationship":
+        if call.get("table_name") == "coreason_etl_rxnorm_gold_fact_rxnorm_relationship":
             assert call.get("primary_key") == [
                 "source_coreason_id",
                 "target_coreason_id",
                 "relationship_type",
             ]
-        elif call.get("table_name") == "bridge_rxnorm_ndc":
+        elif call.get("table_name") == "coreason_etl_rxnorm_gold_bridge_rxnorm_ndc":
             assert call.get("primary_key") == ["coreason_id", "ndc_code"]
         else:
             assert call.get("primary_key") == ["coreason_id"]
