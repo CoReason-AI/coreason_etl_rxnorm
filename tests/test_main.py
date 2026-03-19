@@ -343,7 +343,7 @@ def test_cli_execution_mixed_args_and_env(mock_execute: MagicMock) -> None:
     ],
 )
 @patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent", side_effect=Exception("Pipeline failed"))
-def test_cli_execution_pipeline_failure(_mock_execute: MagicMock) -> None:
+def test_cli_execution_pipeline_failure(*_args: object) -> None:
     import pytest
 
     with pytest.raises(SystemExit) as exc_info:

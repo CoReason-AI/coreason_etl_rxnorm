@@ -92,60 +92,27 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument(
-        "--umls-api-key",
-        type=str,
-        default=None,
-        help="The API key required to authenticate with the UMLS Terminology Services.",
-    )
-    parser.add_argument(
-        "--bronze-bucket",
-        type=str,
-        default=None,
-        help="The S3 URI prefix for the Bronze data lake zone.",
-    )
-    parser.add_argument(
-        "--silver-bucket",
-        type=str,
-        default=None,
-        help="The S3 URI prefix for the Silver data lake zone.",
-    )
-    parser.add_argument(
-        "--athena-database",
-        type=str,
-        default=None,
-        help="The name of the AWS Glue Data Catalog database for Athena queries.",
-    )
-    parser.add_argument(
-        "--pghost",
-        type=str,
-        default=None,
-        help="The hostname of the PostgreSQL database.",
-    )
-    parser.add_argument(
-        "--pgport",
-        type=int,
-        default=None,
-        help="The port of the PostgreSQL database.",
-    )
-    parser.add_argument(
-        "--pguser",
-        type=str,
-        default=None,
-        help="The username for the PostgreSQL database.",
-    )
-    parser.add_argument(
-        "--pgpassword",
-        type=str,
-        default=None,
-        help="The password for the PostgreSQL database.",
-    )
-    parser.add_argument(
-        "--pgdatabase",
-        type=str,
-        default=None,
-        help="The name of the PostgreSQL database.",
-    )
+    # Dynamically build CLI arguments from the Pydantic configuration contract
+    # to enforce DRY principles and ensure CLI is always synchronized with schemas.
+    for field_name, field_info in FederatedRxNormConfigurationContract.model_fields.items():
+        cli_arg_name = f"--{field_name.replace('_', '-')}"
+
+        # Determine the base type, unwrapping Optionals (e.g., str | None)
+        # We check the annotation directly
+        base_type: type = str
+        if (
+            field_info.annotation is int or getattr(field_info.annotation, "__origin__", None) is int
+        ):  # pragma: no cover
+            base_type = int
+        elif field_info.annotation == int | None:
+            base_type = int
+
+        parser.add_argument(
+            cli_arg_name,
+            type=base_type,
+            default=None,
+            help=field_info.description,
+        )
 
     args = parser.parse_args()
 
