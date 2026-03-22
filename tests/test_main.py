@@ -220,13 +220,13 @@ def test_main_skips_postgres_load() -> None:
     "sys.argv",
     [
         "main.py",
-        "--umls-api-key",
+        "--umls_api_key",
         "cli_key",
-        "--bronze-bucket",
+        "--bronze_bucket",
         "s3://cli-bronze",
-        "--silver-bucket",
+        "--silver_bucket",
         "s3://cli-silver",
-        "--athena-database",
+        "--athena_database",
         "cli_db",
     ],
 )
@@ -262,7 +262,7 @@ def test_cli_execution_fallback_to_env(mock_execute: MagicMock) -> None:
     assert config_arg.athena_database == "env_db"
 
 
-@patch("sys.argv", ["main.py", "--umls-api-key", "cli_key"])
+@patch("sys.argv", ["main.py", "--umls_api_key", "cli_key"])
 @patch.dict("os.environ", {}, clear=True)
 def test_cli_execution_failure_missing_args() -> None:
     import pytest
@@ -279,24 +279,24 @@ def test_cli_execution_invalid_port_type() -> None:
 
     with pytest.raises(SystemExit) as exc_info:
         main()
-    assert exc_info.value.code == 2
+    assert exc_info.value.code == 1  # Pydantic ValidationError exits with 1, argparse with 2
 
 
-@patch("sys.argv", ["main.py", "--unknown-arg", "value"])
+@patch("sys.argv", ["main.py", "--unknown_arg", "value"])
 @patch.dict("os.environ", {}, clear=True)
 def test_cli_execution_unrecognized_arg() -> None:
     import pytest
 
     with pytest.raises(SystemExit) as exc_info:
         main()
-    assert exc_info.value.code == 2
+    assert exc_info.value.code == 2  # argparse catches unrecognized args with 2
 
 
 @patch(
     "sys.argv",
     [
         "main.py",
-        "--umls-api-key",
+        "--umls_api_key",
         "cli_key",
         "--pghost",
         "cli_host",
@@ -332,13 +332,13 @@ def test_cli_execution_mixed_args_and_env(mock_execute: MagicMock) -> None:
     "sys.argv",
     [
         "main.py",
-        "--umls-api-key",
+        "--umls_api_key",
         "cli_key",
-        "--bronze-bucket",
+        "--bronze_bucket",
         "s3://cli-bronze",
-        "--silver-bucket",
+        "--silver_bucket",
         "s3://cli-silver",
-        "--athena-database",
+        "--athena_database",
         "cli_db",
     ],
 )
@@ -369,7 +369,7 @@ def test_main_module_execution() -> None:
     "sys.argv",
     [
         "main.py",
-        "--umls-api-key",
+        "--umls_api_key",
         "cli_key",
     ],
 )
@@ -448,8 +448,9 @@ def test_entrypoint_subprocess_execution() -> None:
 
     # Note: `python -m coreason_etl_rxnorm` uses `__main__.py` which imports `main`.
     assert result.returncode == 0
-    assert "CoReason ETL Pipeline for RxNorm" in result.stdout
-    assert "--umls-api-key" in result.stdout
+    # pydantic_settings dynamically creates the help based on __doc__ or class definitions
+    assert "AGENT INSTRUCTION: This object represents the mandatory epistemic configuration state" in result.stdout
+    assert "--umls_api_key" in result.stdout
 
     # Now verify the actual script entrypoint
     import shutil
@@ -465,5 +466,5 @@ def test_entrypoint_subprocess_execution() -> None:
     )
 
     assert result_bin.returncode == 0
-    assert "CoReason ETL Pipeline for RxNorm" in result_bin.stdout
-    assert "--umls-api-key" in result_bin.stdout
+    assert "AGENT INSTRUCTION: This object represents the mandatory epistemic configuration state" in result_bin.stdout
+    assert "--umls_api_key" in result_bin.stdout
