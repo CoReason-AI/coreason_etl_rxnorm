@@ -491,9 +491,24 @@ def test_execute_gold_postgres_load_task_success(
     sys.modules["dlt"] = dlt_mock
     sys.modules["dlt.destinations"] = MagicMock()
 
+    executed_sqls: list[str] = []
+
+    class MockSqlClient:
+        def execute_sql(self, sql: str) -> None:
+            executed_sqls.append(sql)
+
+        def __enter__(self) -> "MockSqlClient":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            pass
+
     class MockPipeline:
         def __init__(self, *args: object, **kwargs: object) -> None:
             pass
+
+        def sql_client(self) -> MockSqlClient:
+            return MockSqlClient()
 
         def run(self, _data: object, **kwargs: object) -> None:
             to_sql_calls.append(kwargs)
@@ -570,6 +585,10 @@ def test_execute_gold_postgres_load_task_success(
         "coreason_etl_rxnorm_gold_dim_rxnorm_concept",
         "coreason_etl_rxnorm_gold_fact_rxnorm_relationship",
     ]
+
+    assert "CREATE SCHEMA IF NOT EXISTS bronze;" in executed_sqls
+    assert "CREATE SCHEMA IF NOT EXISTS silver;" in executed_sqls
+    assert "CREATE SCHEMA IF NOT EXISTS gold;" in executed_sqls
 
     assert len(to_sql_calls) == 3
 
