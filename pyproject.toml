@@ -27,6 +27,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.scripts]
+coreason-etl-rxnorm = "coreason_etl_rxnorm.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
