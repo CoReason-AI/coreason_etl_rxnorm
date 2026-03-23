@@ -576,6 +576,12 @@ def execute_gold_postgres_load_task(
             dataset_name="gold",
         )
 
+        # Enforce structural rules by creating schemas explicitly via sql_client
+        with pipeline.sql_client() as client:
+            client.execute_sql("CREATE SCHEMA IF NOT EXISTS bronze;")
+            client.execute_sql("CREATE SCHEMA IF NOT EXISTS silver;")
+            client.execute_sql("CREATE SCHEMA IF NOT EXISTS gold;")
+
         for table_name, s3_uri, merge_keys in datasets:
             logger.debug(f"Loading Gold table {table_name} into PostgreSQL from {s3_uri}.")
 

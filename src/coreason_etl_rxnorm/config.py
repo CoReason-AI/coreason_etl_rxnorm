@@ -11,7 +11,7 @@
 import uuid
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Determine UUID5 base for RxNorm to ensure deterministic identity.
 NAMESPACE_RXNORM = uuid.UUID("f3b9c7b0-7b3b-4b3b-8b3b-0b3b3b3b3b3b")
@@ -24,6 +24,12 @@ class FederatedRxNormConfigurationContract(BaseSettings):
 
     It validates required fields for processing RxNorm.
     """
+
+    model_config = SettingsConfigDict(
+        cli_parse_args=True,
+        cli_prog_name="coreason-etl-rxnorm",
+        cli_hide_none_type=True,
+    )
 
     umls_api_key: str = Field(
         ..., description="The API key required to authenticate with the UMLS Terminology Services."
