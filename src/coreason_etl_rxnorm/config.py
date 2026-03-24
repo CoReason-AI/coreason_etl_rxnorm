@@ -26,6 +26,9 @@ class FederatedRxNormConfigurationContract(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
+        env_file=".env",              # <--- ADD THIS LINE
+        env_file_encoding="utf-8",    # <--- ADD THIS LINE
+        extra="ignore",
         cli_parse_args=True,
         cli_prog_name="coreason-etl-rxnorm",
         cli_hide_none_type=True,
