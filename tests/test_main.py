@@ -8,8 +8,463 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 
-from coreason_etl_rxnorm.main import hello_world
+import pathlib
+from unittest.mock import MagicMock, patch
+
+from coreason_etl_rxnorm.config import FederatedRxNormConfigurationContract
+from coreason_etl_rxnorm.lake_manifold import (
+    EpistemicBronzeUploadManifest,
+    EpistemicGoldPostgresManifest,
+    EpistemicGoldRegistrationManifest,
+    EpistemicSilverConsoManifest,
+    EpistemicSilverRelManifest,
+    EpistemicSilverSatManifest,
+)
+from coreason_etl_rxnorm.main import execute_federated_pipeline_intent, main
+from coreason_etl_rxnorm.network_manifold import (
+    EpistemicReleaseMetadataManifest,
+    SpatialArchiveState,
+    SpatialExtractionManifest,
+)
 
 
-def test_hello_world() -> None:
-    assert hello_world() == "Hello World!"
+def test_execute_federated_pipeline_intent() -> None:
+    config = FederatedRxNormConfigurationContract(
+        umls_api_key="mock_key",
+        bronze_bucket="s3://mock-bronze",
+        silver_bucket="s3://mock-silver",
+        athena_database="mock_db",
+    )
+
+    mock_metadata_manifest = EpistemicReleaseMetadataManifest(download_url="https://example.com/rxnorm.zip")
+    mock_archive_state = SpatialArchiveState(archive_path=pathlib.Path("mock_dir/mock.zip"))
+    mock_extraction_manifest = SpatialExtractionManifest(
+        extraction_path=pathlib.Path("mock_dir/mock_extract"),
+        extracted_files=[
+            pathlib.Path("mock_dir/mock_extract/RXNCONSO.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNREL.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNSAT.RRF"),
+        ],
+    )
+    mock_bronze_manifest = EpistemicBronzeUploadManifest(uploaded_s3_uris=["s3://mock-bronze/rxnorm.zip"])
+    mock_conso_manifest = EpistemicSilverConsoManifest(uploaded_s3_uri="s3://mock-silver/conso.parquet")
+    mock_rel_manifest = EpistemicSilverRelManifest(uploaded_s3_uri="s3://mock-silver/rel.parquet")
+    mock_sat_manifest = EpistemicSilverSatManifest(uploaded_s3_uri="s3://mock-silver/sat.parquet")
+    mock_gold_manifest = EpistemicGoldRegistrationManifest(registered_tables=["table1"])
+
+    with (
+        patch(
+            "coreason_etl_rxnorm.main.execute_epistemic_release_metadata_fetch_task",
+            return_value=mock_metadata_manifest,
+        ) as mock_fetch,
+        patch(
+            "coreason_etl_rxnorm.main.execute_epistemic_archive_download_task", return_value=mock_archive_state
+        ) as mock_download,
+        patch(
+            "coreason_etl_rxnorm.main.execute_spatial_archive_extraction_task", return_value=mock_extraction_manifest
+        ) as mock_extract,
+        patch(
+            "coreason_etl_rxnorm.main.execute_bronze_lake_upload_task", return_value=mock_bronze_manifest
+        ) as mock_bronze,
+        patch(
+            "coreason_etl_rxnorm.main.execute_silver_conso_transmutation_task", return_value=mock_conso_manifest
+        ) as mock_conso,
+        patch(
+            "coreason_etl_rxnorm.main.execute_silver_rel_transmutation_task", return_value=mock_rel_manifest
+        ) as mock_rel,
+        patch(
+            "coreason_etl_rxnorm.main.execute_silver_sat_transmutation_task", return_value=mock_sat_manifest
+        ) as mock_sat,
+        patch(
+            "coreason_etl_rxnorm.main.execute_gold_athena_registration_task", return_value=mock_gold_manifest
+        ) as mock_gold,
+    ):
+        result = execute_federated_pipeline_intent(config)
+
+        assert result == mock_gold_manifest
+
+        mock_fetch.assert_called_once_with(config)
+        mock_download.assert_called_once_with(mock_metadata_manifest, config)
+        mock_extract.assert_called_once_with(mock_archive_state)
+        mock_bronze.assert_called_once_with(mock_extraction_manifest, config)
+
+        # Verify specific file objects are correctly filtered and passed
+        conso_call_args = mock_conso.call_args[0]
+        assert conso_call_args[0].name == "RXNCONSO.RRF"
+        assert conso_call_args[1] == config
+
+        rel_call_args = mock_rel.call_args[0]
+        assert rel_call_args[0].name == "RXNREL.RRF"
+        assert rel_call_args[1] == config
+
+        sat_call_args = mock_sat.call_args[0]
+        assert sat_call_args[0].name == "RXNSAT.RRF"
+        assert sat_call_args[1] == config
+
+        mock_gold.assert_called_once_with(
+            conso_manifest=mock_conso_manifest,
+            rel_manifest=mock_rel_manifest,
+            sat_manifest=mock_sat_manifest,
+            config=config,
+        )
+
+
+def test_main_invokes_postgres_load() -> None:
+    config = FederatedRxNormConfigurationContract(
+        umls_api_key="mock_key",
+        bronze_bucket="s3://mock-bronze",
+        silver_bucket="s3://mock-silver",
+        athena_database="mock_db",
+        pghost="localhost",
+        pgport=5432,
+        pguser="user",
+        pgpassword="password",
+        pgdatabase="db",
+    )
+
+    mock_metadata_manifest = EpistemicReleaseMetadataManifest(download_url="https://example.com/rxnorm.zip")
+    mock_archive_state = SpatialArchiveState(archive_path=pathlib.Path("mock_dir/mock.zip"))
+    mock_extraction_manifest = SpatialExtractionManifest(
+        extraction_path=pathlib.Path("mock_dir/mock_extract"),
+        extracted_files=[
+            pathlib.Path("mock_dir/mock_extract/RXNCONSO.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNREL.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNSAT.RRF"),
+        ],
+    )
+    mock_bronze_manifest = EpistemicBronzeUploadManifest(uploaded_s3_uris=["s3://mock-bronze/rxnorm.zip"])
+    mock_conso_manifest = EpistemicSilverConsoManifest(uploaded_s3_uri="s3://mock-silver/conso.parquet")
+    mock_rel_manifest = EpistemicSilverRelManifest(uploaded_s3_uri="s3://mock-silver/rel.parquet")
+    mock_sat_manifest = EpistemicSilverSatManifest(uploaded_s3_uri="s3://mock-silver/sat.parquet")
+    mock_gold_manifest = EpistemicGoldRegistrationManifest(registered_tables=["table1"])
+    mock_postgres_manifest = EpistemicGoldPostgresManifest(loaded_tables=["table1"])
+
+    with (
+        patch(
+            "coreason_etl_rxnorm.main.execute_epistemic_release_metadata_fetch_task",
+            return_value=mock_metadata_manifest,
+        ),
+        patch("coreason_etl_rxnorm.main.execute_epistemic_archive_download_task", return_value=mock_archive_state),
+        patch(
+            "coreason_etl_rxnorm.main.execute_spatial_archive_extraction_task", return_value=mock_extraction_manifest
+        ),
+        patch("coreason_etl_rxnorm.main.execute_bronze_lake_upload_task", return_value=mock_bronze_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_conso_transmutation_task", return_value=mock_conso_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_rel_transmutation_task", return_value=mock_rel_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_sat_transmutation_task", return_value=mock_sat_manifest),
+        patch("coreason_etl_rxnorm.main.execute_gold_athena_registration_task", return_value=mock_gold_manifest),
+        patch(
+            "coreason_etl_rxnorm.main.execute_gold_postgres_load_task", return_value=mock_postgres_manifest
+        ) as mock_postgres,
+    ):
+        result = execute_federated_pipeline_intent(config)
+
+        assert result == mock_gold_manifest
+
+        mock_postgres.assert_called_once_with(
+            conso_manifest=mock_conso_manifest,
+            rel_manifest=mock_rel_manifest,
+            sat_manifest=mock_sat_manifest,
+            config=config,
+        )
+
+
+def test_main_skips_postgres_load() -> None:
+    config = FederatedRxNormConfigurationContract(
+        umls_api_key="mock_key",
+        bronze_bucket="s3://mock-bronze",
+        silver_bucket="s3://mock-silver",
+        athena_database="mock_db",
+    )
+
+    mock_metadata_manifest = EpistemicReleaseMetadataManifest(download_url="https://example.com/rxnorm.zip")
+    mock_archive_state = SpatialArchiveState(archive_path=pathlib.Path("mock_dir/mock.zip"))
+    mock_extraction_manifest = SpatialExtractionManifest(
+        extraction_path=pathlib.Path("mock_dir/mock_extract"),
+        extracted_files=[
+            pathlib.Path("mock_dir/mock_extract/RXNCONSO.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNREL.RRF"),
+            pathlib.Path("mock_dir/mock_extract/RXNSAT.RRF"),
+        ],
+    )
+    mock_bronze_manifest = EpistemicBronzeUploadManifest(uploaded_s3_uris=["s3://mock-bronze/rxnorm.zip"])
+    mock_conso_manifest = EpistemicSilverConsoManifest(uploaded_s3_uri="s3://mock-silver/conso.parquet")
+    mock_rel_manifest = EpistemicSilverRelManifest(uploaded_s3_uri="s3://mock-silver/rel.parquet")
+    mock_sat_manifest = EpistemicSilverSatManifest(uploaded_s3_uri="s3://mock-silver/sat.parquet")
+    mock_gold_manifest = EpistemicGoldRegistrationManifest(registered_tables=["table1"])
+
+    with (
+        patch(
+            "coreason_etl_rxnorm.main.execute_epistemic_release_metadata_fetch_task",
+            return_value=mock_metadata_manifest,
+        ),
+        patch("coreason_etl_rxnorm.main.execute_epistemic_archive_download_task", return_value=mock_archive_state),
+        patch(
+            "coreason_etl_rxnorm.main.execute_spatial_archive_extraction_task", return_value=mock_extraction_manifest
+        ),
+        patch("coreason_etl_rxnorm.main.execute_bronze_lake_upload_task", return_value=mock_bronze_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_conso_transmutation_task", return_value=mock_conso_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_rel_transmutation_task", return_value=mock_rel_manifest),
+        patch("coreason_etl_rxnorm.main.execute_silver_sat_transmutation_task", return_value=mock_sat_manifest),
+        patch("coreason_etl_rxnorm.main.execute_gold_athena_registration_task", return_value=mock_gold_manifest),
+        patch("coreason_etl_rxnorm.main.execute_gold_postgres_load_task") as mock_postgres,
+    ):
+        result = execute_federated_pipeline_intent(config)
+
+        assert result == mock_gold_manifest
+
+        mock_postgres.assert_not_called()
+
+
+@patch(
+    "sys.argv",
+    [
+        "main.py",
+        "--umls_api_key",
+        "cli_key",
+        "--bronze_bucket",
+        "s3://cli-bronze",
+        "--silver_bucket",
+        "s3://cli-silver",
+        "--athena_database",
+        "cli_db",
+    ],
+)
+@patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent")
+def test_cli_execution_success(mock_execute: MagicMock) -> None:
+    main()
+    mock_execute.assert_called_once()
+    config_arg = mock_execute.call_args[0][0]
+    assert config_arg.umls_api_key == "cli_key"
+    assert config_arg.bronze_bucket == "s3://cli-bronze"
+    assert config_arg.silver_bucket == "s3://cli-silver"
+    assert config_arg.athena_database == "cli_db"
+
+
+@patch("sys.argv", ["main.py"])
+@patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent")
+@patch.dict(
+    "os.environ",
+    {
+        "UMLS_API_KEY": "env_key",
+        "BRONZE_BUCKET": "s3://env-bronze",
+        "SILVER_BUCKET": "s3://env-silver",
+        "ATHENA_DATABASE": "env_db",
+    },
+)
+def test_cli_execution_fallback_to_env(mock_execute: MagicMock) -> None:
+    main()
+    mock_execute.assert_called_once()
+    config_arg = mock_execute.call_args[0][0]
+    assert config_arg.umls_api_key == "env_key"
+    assert config_arg.bronze_bucket == "s3://env-bronze"
+    assert config_arg.silver_bucket == "s3://env-silver"
+    assert config_arg.athena_database == "env_db"
+
+
+@patch("sys.argv", ["main.py", "--umls_api_key", "cli_key"])
+@patch.dict("os.environ", {}, clear=True)
+def test_cli_execution_failure_missing_args() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+
+
+@patch("sys.argv", ["main.py", "--pgport", "invalid_port"])
+@patch.dict("os.environ", {}, clear=True)
+def test_cli_execution_invalid_port_type() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1  # Pydantic ValidationError exits with 1, argparse with 2
+
+
+@patch("sys.argv", ["main.py", "--unknown_arg", "value"])
+@patch.dict("os.environ", {}, clear=True)
+def test_cli_execution_unrecognized_arg() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 2  # argparse catches unrecognized args with 2
+
+
+@patch(
+    "sys.argv",
+    [
+        "main.py",
+        "--umls_api_key",
+        "cli_key",
+        "--pghost",
+        "cli_host",
+    ],
+)
+@patch.dict(
+    "os.environ",
+    {
+        "BRONZE_BUCKET": "s3://env-bronze",
+        "SILVER_BUCKET": "s3://env-silver",
+        "ATHENA_DATABASE": "env_db",
+        "PGPORT": "5432",
+    },
+)
+@patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent")
+def test_cli_execution_mixed_args_and_env(mock_execute: MagicMock) -> None:
+    main()
+    mock_execute.assert_called_once()
+    config_arg = mock_execute.call_args[0][0]
+
+    # CLI args
+    assert config_arg.umls_api_key == "cli_key"
+    assert config_arg.pghost == "cli_host"
+
+    # Env vars
+    assert config_arg.bronze_bucket == "s3://env-bronze"
+    assert config_arg.silver_bucket == "s3://env-silver"
+    assert config_arg.athena_database == "env_db"
+    assert config_arg.pgport == 5432
+
+
+@patch(
+    "sys.argv",
+    [
+        "main.py",
+        "--umls_api_key",
+        "cli_key",
+        "--bronze_bucket",
+        "s3://cli-bronze",
+        "--silver_bucket",
+        "s3://cli-silver",
+        "--athena_database",
+        "cli_db",
+    ],
+)
+@patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent", side_effect=Exception("Pipeline failed"))
+def test_cli_execution_pipeline_failure(*_args: object) -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+
+
+def test_main_module_execution() -> None:
+    import contextlib
+    import runpy
+    import sys
+
+    with (
+        patch.object(sys, "argv", ["coreason_etl_rxnorm", "--help"]),
+        patch("coreason_etl_rxnorm.main.main") as mock_main,
+    ):
+        with contextlib.suppress(SystemExit):
+            runpy.run_module("coreason_etl_rxnorm", run_name="__main__")
+        mock_main.assert_called_once()
+
+
+@patch(
+    "sys.argv",
+    [
+        "main.py",
+        "--umls_api_key",
+        "cli_key",
+    ],
+)
+@patch.dict(
+    "os.environ",
+    {
+        "UMLS_API_KEY": "env_key",
+        "BRONZE_BUCKET": "s3://env-bronze",
+        "SILVER_BUCKET": "s3://env-silver",
+        "ATHENA_DATABASE": "env_db",
+    },
+)
+@patch("coreason_etl_rxnorm.main.execute_federated_pipeline_intent")
+def test_cli_execution_overrides_env_var(mock_execute: MagicMock) -> None:
+    """Verify CLI arguments take precedence over environment variables for the same field."""
+    main()
+    mock_execute.assert_called_once()
+    config_arg = mock_execute.call_args[0][0]
+
+    # CLI arg should override env var
+    assert config_arg.umls_api_key == "cli_key"
+
+    # Other args should still fall back to env vars
+    assert config_arg.bronze_bucket == "s3://env-bronze"
+    assert config_arg.silver_bucket == "s3://env-silver"
+    assert config_arg.athena_database == "env_db"
+
+
+@patch("sys.argv", ["main.py"])
+@patch.dict(
+    "os.environ",
+    {
+        "UMLS_API_KEY": "env_key",
+        "BRONZE_BUCKET": "s3://env-bronze",
+        "SILVER_BUCKET": "s3://env-silver",
+        "ATHENA_DATABASE": "env_db",
+        "PGPORT": "not_an_int",  # Invalid type to trigger Pydantic validation error
+    },
+    clear=True,
+)
+def test_cli_execution_pydantic_validation_error() -> None:
+    """Verify that invalid env vars that bypass argparse type checking still cause graceful exit via Pydantic."""
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+
+
+@patch("sys.argv", ["main.py", "--help"])
+def test_cli_help_flag_exits_cleanly() -> None:
+    """Verify the --help flag exits cleanly with status 0."""
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 0
+
+
+def test_entrypoint_subprocess_execution() -> None:
+    """Use subprocess.run to execute the actual binary to guarantee [project.scripts] works."""
+    import subprocess
+    import sys
+
+    # Running `uv run coreason-etl-rxnorm --help` checks the entrypoint registration
+    # Use python -m to avoid needing the exact script path if it's already installed in the environment
+    # but we can also just run it as a subprocess if the environment path has the script.
+
+    # We will test using the executable `coreason-etl-rxnorm` directly
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "coreason_etl_rxnorm", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    # Note: `python -m coreason_etl_rxnorm` uses `__main__.py` which imports `main`.
+    assert result.returncode == 0
+    # pydantic_settings dynamically creates the help based on __doc__ or class definitions
+    assert "AGENT INSTRUCTION: This object represents the mandatory epistemic configuration state" in result.stdout
+    assert "--umls_api_key" in result.stdout
+
+    # Now verify the actual script entrypoint
+    import shutil
+
+    bin_path = shutil.which("coreason-etl-rxnorm")
+    assert bin_path is not None, "Executable coreason-etl-rxnorm not found in PATH"
+
+    result_bin = subprocess.run(  # noqa: S603
+        [bin_path, "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result_bin.returncode == 0
+    assert "AGENT INSTRUCTION: This object represents the mandatory epistemic configuration state" in result_bin.stdout
+    assert "--umls_api_key" in result_bin.stdout

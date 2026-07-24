@@ -8,14 +8,7 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_etl_rxnorm
 
-"""
-ETL pipeline processing RxNorm standardized clinical drug names and vocabularies
-"""
+from coreason_etl_rxnorm.main import main
 
-__version__ = "0.1.0"
-__author__ = "Akshaya M"
-__email__ = "akshaya.movvar@coreason.ai"
-
-from .main import execute_federated_pipeline_intent
-
-__all__ = ["execute_federated_pipeline_intent"]
+if __name__ == "__main__":
+    main()

@@ -12,13 +12,24 @@ authors = [
     { name = "Akshaya M", email = "akshaya.movvar@coreason.ai" },
 ]
 dependencies = [
+    "adbc-driver-postgresql>=1.10.0",
+    "awswrangler>=3.15.1",
+    "boto3>=1.42.68",
+    "dlt>=1.23.0 ; python_version < '3.14'",
     "loguru>=0.7.2",
+    "polars>=1.39.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "requests>=2.32.5",
 ]
 license = { file = "LICENSE" }
 classifiers = [
     "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
 ]
+
+[project.scripts]
+coreason-etl-rxnorm = "coreason_etl_rxnorm.main:main"
 
 [dependency-groups]
 dev = [
@@ -37,7 +48,12 @@ dev = [
     "mkdocstrings-python",
     "types-pyyaml>=6.0.12.20250915",
     "tzdata>=2025.3",
-    "pytest-xdist>=3.6.1"
+    "pytest-xdist>=3.6.1",
+    "responses>=0.26.0",
+    "types-requests>=2.32.4.20260107",
+    "moto>=5.1.22",
+    "boto3-stubs[s3]>=1.42.68",
+    "pyparsing>=3.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -65,6 +81,7 @@ strict = true
 disallow_untyped_defs = true
 warn_unused_ignores = true
 plugins = ["pydantic.mypy"]
+implicit_reexport = true
 
 [tool.pytest.ini_options]
 addopts = "-n auto --cov=src --cov-report=term-missing --cov-report=html --cov-fail-under=100"

@@ -1,0 +1,12 @@
+### Pending Atomic Units:
+
+1.  **Download Archive:** Implement `execute_epistemic_archive_download_task` to stream the RxNorm ZIP archive from the NLM API to a local temporary file using `requests` and `tempfile.NamedTemporaryFile`.
+2.  **Extract Archive:** Implement an extraction task to extract specific `.RRF` files (`RXNCONSO.RRF`, `RXNREL.RRF`, `RXNSAT.RRF`) from the downloaded ZIP archive to a temporary directory.
+3.  **Upload to Bronze:** Implement `execute_bronze_lake_upload_task` to upload the extracted `.RRF` files to the designated S3 Bronze prefix using `boto3`.
+4.  **Process RXNCONSO to Silver:** Implement `execute_silver_conso_transmutation_task` using `polars` to parse `RXNCONSO.RRF`, apply strict typing, filter for `LAT == 'ENG'` and `SUPPRESS` status, construct `coreason_id`, map to the conceptual schema, and output to Parquet on S3.
+5.  **Process RXNREL to Silver:** Implement `execute_silver_rel_transmutation_task` using `polars` to parse `RXNREL.RRF`, join with concepts if necessary, map relationship edges, and output to Parquet on S3.
+6.  **Process RXNSAT to Silver:** Implement `execute_silver_sat_transmutation_task` using `polars` to parse `RXNSAT.RRF`, filter for `ATN == 'NDC'`, map bridge table schema, and output to Parquet on S3.
+7.  **Register Gold Tables:** Implement `execute_gold_athena_registration_task` using `awswrangler` to register the Silver Parquet outputs as Athena tables in the AWS Glue Data Catalog.
+
+### Selection (The "One Step" Rule):
+**Selected Atomic Unit: 1. Download Archive**
